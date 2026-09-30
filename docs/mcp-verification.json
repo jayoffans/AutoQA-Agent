@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "ok": true,
+  "artifact": "devtools-mcp.json",
+  "http_500_verified": true,
+  "same_page_verified": true,
+  "tools": [
+    "list_console_messages",
+    "list_network_requests",
+    "take_snapshot"
+  ]
+}

@@ -1,0 +1,100 @@
+{
+  "recorded_at": "2026-09-30T11:18:29.851374+00:00",
+  "suite": "controlled-demo-v1",
+  "scope": "真实 Chromium + 演示模板；不代表开放网站或 LLM 泛化表现",
+  "cases": [
+    {
+      "case": "login-multipage",
+      "task_id": "0d2207f3-3832-4c41-9e8a-f9cf1be4ad7b",
+      "expected_status": "passed",
+      "observed_status": "passed",
+      "expected_category": null,
+      "observed_category": null,
+      "planner_mode": "demo",
+      "correct": true,
+      "duration_seconds": 3.44,
+      "attempts": 8,
+      "retries": 0
+    },
+    {
+      "case": "network-500",
+      "task_id": "98e53375-4801-4cea-8d54-68110af26506",
+      "expected_status": "failed",
+      "observed_status": "failed",
+      "expected_category": "network_error",
+      "observed_category": "network_error",
+      "planner_mode": "demo",
+      "correct": true,
+      "duration_seconds": 1.2,
+      "attempts": 2,
+      "retries": 0
+    },
+    {
+      "case": "frontend-exception",
+      "task_id": "8cc66550-181b-4827-af3a-a2ea3abde2e3",
+      "expected_status": "failed",
+      "observed_status": "failed",
+      "expected_category": "frontend_error",
+      "observed_category": "frontend_error",
+      "planner_mode": "demo",
+      "correct": true,
+      "duration_seconds": 1.17,
+      "attempts": 2,
+      "retries": 0
+    },
+    {
+      "case": "assertion-mismatch",
+      "task_id": "f09c194d-6ac3-4cc4-8670-3e6ea4f92a03",
+      "expected_status": "failed",
+      "observed_status": "failed",
+      "expected_category": "assertion_error",
+      "observed_category": "assertion_error",
+      "planner_mode": "demo",
+      "correct": true,
+      "duration_seconds": 2.28,
+      "attempts": 2,
+      "retries": 0
+    },
+    {
+      "case": "missing-element",
+      "task_id": "d16c2c60-73ee-4da2-b399-e5380a9b5f6d",
+      "expected_status": "failed",
+      "observed_status": "failed",
+      "expected_category": "element_error",
+      "observed_category": "element_error",
+      "planner_mode": "demo",
+      "correct": true,
+      "duration_seconds": 2.25,
+      "attempts": 2,
+      "retries": 0
+    },
+    {
+      "case": "retry-render",
+      "task_id": "4c0c415f-dc31-46f9-b3d6-a2889b3b9a6c",
+      "expected_status": "passed",
+      "observed_status": "passed",
+      "expected_category": null,
+      "observed_category": null,
+      "planner_mode": "demo",
+      "correct": true,
+      "duration_seconds": 2.61,
+      "attempts": 4,
+      "retries": 1
+    },
+    {
+      "case": "human-approval",
+      "task_id": "7c813719-b0d8-4246-a6d1-5ff251a404fc",
+      "expected_status": "passed",
+      "observed_status": "passed",
+      "expected_category": null,
+      "observed_category": null,
+      "planner_mode": "demo",
+      "correct": true,
+      "duration_seconds": 2.02,
+      "attempts": 5,
+      "retries": 0
+    }
+  ],
+  "correct": 7,
+  "total": 7
+}

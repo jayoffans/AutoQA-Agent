@@ -1,0 +1,43 @@
+services:
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:8765:8765"
+    environment:
+      AUTOQA_DATABASE_URL: mysql+pymysql://autoqa:${MYSQL_PASSWORD:-local-demo-password}@mysql:3306/autoqa?charset=utf8mb4
+      AUTOQA_ALLOWED_ORIGINS: ${AUTOQA_ALLOWED_ORIGINS:-http://127.0.0.1:8765,http://localhost:8765}
+      AUTOQA_RESOURCE_ORIGINS: ${AUTOQA_RESOURCE_ORIGINS:-}
+      AUTOQA_LLM_BASE_URL: ${AUTOQA_LLM_BASE_URL:-https://api.openai.com/v1}
+      AUTOQA_LLM_API_KEY: ${AUTOQA_LLM_API_KEY:-}
+      AUTOQA_LLM_MODEL: ${AUTOQA_LLM_MODEL:-}
+      AUTOQA_API_TOKEN: ${AUTOQA_API_TOKEN:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}
+    volumes:
+      - checkpoints:/app/data
+      - evidence:/app/artifacts
+    shm_size: 1gb
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: autoqa
+      MYSQL_USER: autoqa
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-local-demo-password}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-local-demo-root-password}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uautoqa -p$$MYSQL_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+volumes:
+  mysql-data:
+  checkpoints:
+  evidence:
