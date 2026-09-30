@@ -13,3 +13,13 @@ dist/
 .coverage
 work/
 node_modules/
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+*.sqlite-shm
+*.sqlite-wal
+*.log
+.env.*
+!.env.example

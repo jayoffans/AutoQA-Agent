@@ -1,27 +1,75 @@
 import os
 from pathlib import Path
+from typing import Literal
 
-from pydantic import Field
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="AUTOQA_", env_file=".env", extra="ignore")
-    database_url: str = "sqlite:///./data/autoqa.db"
+    model_config = SettingsConfigDict(env_prefix="AUTOQA_", env_file=".env", extra="ignore",
+                                     populate_by_name=True)
+    database_url: str = Field(default="sqlite:///./data/autoqa.db", repr=False,
+                              validation_alias=AliasChoices("DATABASE_URL", "AUTOQA_DATABASE_URL"))
     data_dir: Path = Path("data")
     artifact_dir: Path = Path("artifacts")
     allowed_origins: str = "http://127.0.0.1:8765,http://localhost:8765"
     resource_origins: str = ""
     headless: bool = True
     concurrency: int = Field(default=2, ge=1, le=8)
-    api_token: str = ""
+    api_token: str = Field(default="", repr=False)
     llm_base_url: str = "https://api.openai.com/v1"
-    llm_api_key: str = ""
+    llm_api_key: str = Field(default="", repr=False)
     llm_model: str = ""
+    llm_provider: Literal["compatible", "openai", "deepseek", "mock"] = Field(
+        default="compatible", validation_alias=AliasChoices("LLM_PROVIDER", "AUTOQA_LLM_PROVIDER"))
+    provider_model: str = Field(default="", validation_alias="LLM_MODEL")
+    openai_api_key: str = Field(default="", repr=False, validation_alias="OPENAI_API_KEY")
+    deepseek_api_key: str = Field(default="", repr=False, validation_alias="DEEPSEEK_API_KEY")
+    port: int = Field(default=8765, ge=1, le=65535, validation_alias="PORT")
+    env: Literal["development", "production", "test"] = "development"
+    public_base_url: str = ""
+    demo_login_fault: bool = True
+    mysql_host: str = Field(default="", validation_alias="MYSQLHOST")
+    mysql_port: int = Field(default=3306, validation_alias="MYSQLPORT")
+    mysql_user: str = Field(default="", validation_alias="MYSQLUSER")
+    mysql_password: str = Field(default="", repr=False, validation_alias="MYSQLPASSWORD")
+    mysql_database: str = Field(default="", validation_alias="MYSQLDATABASE")
     mcp_enabled: bool = False
     mcp_command: str = "npx.cmd" if os.name == "nt" else "npx"
     mcp_args: list[str] = ["-y", "chrome-devtools-mcp@1.10.1", "--no-usage-statistics"]
 
     @property
     def model_enabled(self) -> bool:
-        return bool(self.llm_api_key and self.llm_model)
+        return self.llm_provider == "mock" or bool(self.provider_key and self.model_name)
+
+    @property
+    def provider_key(self) -> str:
+        return {"openai": self.openai_api_key, "deepseek": self.deepseek_api_key}.get(
+            self.llm_provider, self.llm_api_key)
+
+    @property
+    def model_name(self) -> str:
+        return self.provider_model or self.llm_model
+
+    @property
+    def studio_url(self) -> str:
+        return self.public_base_url.rstrip("/") or f"http://127.0.0.1:{self.port}"
+
+    @model_validator(mode="after")
+    def production_config(self):
+        if not self.database_url:
+            if self.mysql_host:
+                from sqlalchemy import URL
+                self.database_url = URL.create("mysql+pymysql", username=self.mysql_user,
+                    password=self.mysql_password, host=self.mysql_host, port=self.mysql_port,
+                    database=self.mysql_database, query={"charset": "utf8mb4"}).render_as_string(hide_password=False)
+            else:
+                self.database_url = "sqlite:///./data/autoqa.db"
+        if not self.public_base_url and os.getenv("RAILWAY_PUBLIC_DOMAIN"):
+            self.public_base_url = "https://" + os.environ["RAILWAY_PUBLIC_DOMAIN"]
+        if self.database_url.startswith("mysql://"):
+            self.database_url = "mysql+pymysql://" + self.database_url[len("mysql://"):]
+        if self.env == "production" and not self.api_token:
+            raise ValueError("AUTOQA_API_TOKEN is required in production")
+        return self

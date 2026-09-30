@@ -1,19 +1,31 @@
 services:
-  app:
+  autoqa:
     build: .
     ports:
-      - "127.0.0.1:8765:8765"
+      - "127.0.0.1:${PORT:-8765}:${PORT:-8765}"
     environment:
-      AUTOQA_DATABASE_URL: mysql+pymysql://autoqa:${MYSQL_PASSWORD:-local-demo-password}@mysql:3306/autoqa?charset=utf8mb4
+      DATABASE_URL: ""
+      MYSQLHOST: mysql
+      MYSQLPORT: "3306"
+      MYSQLUSER: ${MYSQL_USER:-autoqa}
+      MYSQLPASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      MYSQLDATABASE: ${MYSQL_DATABASE:-autoqa}
+      PORT: ${PORT:-8765}
+      AUTOQA_ENV: ${AUTOQA_ENV:-development}
+      AUTOQA_DATA_DIR: /app/data
+      AUTOQA_ARTIFACT_DIR: /app/artifacts
+      AUTOQA_PUBLIC_BASE_URL: ${AUTOQA_PUBLIC_BASE_URL:-}
       AUTOQA_ALLOWED_ORIGINS: ${AUTOQA_ALLOWED_ORIGINS:-http://127.0.0.1:8765,http://localhost:8765}
       AUTOQA_RESOURCE_ORIGINS: ${AUTOQA_RESOURCE_ORIGINS:-}
+      AUTOQA_API_TOKEN: ${AUTOQA_API_TOKEN:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-compatible}
+      LLM_MODEL: ${LLM_MODEL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       AUTOQA_LLM_BASE_URL: ${AUTOQA_LLM_BASE_URL:-https://api.openai.com/v1}
       AUTOQA_LLM_API_KEY: ${AUTOQA_LLM_API_KEY:-}
       AUTOQA_LLM_MODEL: ${AUTOQA_LLM_MODEL:-}
-      AUTOQA_API_TOKEN: ${AUTOQA_API_TOKEN:-}
-      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
-      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
-      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}
+      AUTOQA_DEMO_LOGIN_FAULT: ${AUTOQA_DEMO_LOGIN_FAULT:-true}
     volumes:
       - checkpoints:/app/data
       - evidence:/app/artifacts
@@ -25,14 +37,14 @@ services:
   mysql:
     image: mysql:8.4
     environment:
-      MYSQL_DATABASE: autoqa
-      MYSQL_USER: autoqa
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-local-demo-password}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-local-demo-root-password}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-autoqa}
+      MYSQL_USER: ${MYSQL_USER:-autoqa}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uautoqa -p$$MYSQL_PASSWORD --silent"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost --silent"]
       interval: 5s
       timeout: 5s
       retries: 30

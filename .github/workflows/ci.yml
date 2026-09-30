@@ -15,8 +15,42 @@ jobs:
       - run: python -m playwright install --with-deps chromium
       - run: ruff check autoqa tests scripts
       - run: pytest -q --junitxml=work/test-results.xml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: JavaScript syntax
+        run: |
+          node --check autoqa/static/app.js
+          node --check autoqa/static/components.js
+          node --check autoqa/static/studio-model.js
+      - name: Studio browser acceptance
+        env:
+          LLM_PROVIDER: mock
+          DATABASE_URL: sqlite:///./work/ci-studio.db
+          AUTOQA_DATA_DIR: work/ci-data
+          AUTOQA_ARTIFACT_DIR: work/ci-artifacts
+        run: |
+          python -m uvicorn autoqa.app:app --host 127.0.0.1 --port 8765 --no-access-log > work/ui-server.log 2>&1 &
+          service_pid=$!
+          trap 'kill "$service_pid"' EXIT
+          python - <<'PY'
+          import time, httpx
+          for attempt in range(60):
+              try:
+                  httpx.get("http://127.0.0.1:8765/api/health").raise_for_status()
+                  break
+              except httpx.HTTPError:
+                  time.sleep(0.5)
+          else:
+              raise RuntimeError("Studio service did not start")
+          PY
+          python scripts/verify_studio.py --output work/studio-qa
+      - run: python scripts/validate_deployment.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: junit-results
-          path: work/test-results.xml
+          path: |
+            work/test-results.xml
+            work/studio-qa/studio-ui-results.json
+            work/studio-qa/*.png

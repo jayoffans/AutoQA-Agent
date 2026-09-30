@@ -17,6 +17,8 @@ if ($Setup) {
     & $projectPython -m playwright install chromium
     if ($LASTEXITCODE -ne 0) { throw '安装 Chromium 失败。' }
 }
-Write-Host 'AutoQA Agent: http://127.0.0.1:8765' -ForegroundColor Green
-if (-not $NoBrowser) { Start-Process 'http://127.0.0.1:8765' }
-& $projectPython -m uvicorn autoqa.app:app --host 127.0.0.1 --port 8765 --workers 1
+$studioPort = & $projectPython -c 'from autoqa.config import Settings; print(Settings().port)'
+if ($LASTEXITCODE -ne 0) { throw '读取配置失败。' }
+Write-Host "AutoQA Studio: http://127.0.0.1:$studioPort" -ForegroundColor Green
+if (-not $NoBrowser) { Start-Process "http://127.0.0.1:$studioPort" }
+& $projectPython -m uvicorn autoqa.app:app --host 127.0.0.1 --port $studioPort --workers 1 --no-access-log

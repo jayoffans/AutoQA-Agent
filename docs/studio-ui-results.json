@@ -1,0 +1,18 @@
+{
+  "checks": [
+    "Empty dashboard and service connection",
+    "Plan approval and persistent workflow survive browser refresh",
+    "Create regression, review real plan, approve, execute and capture evidence",
+    "Passed assertions, coverage, HTML download",
+    "Network failure triage, unexecuted assertions, truthful coverage",
+    "Server project is visible in an independent browser session",
+    "Server projects persist and smoke uses structured API steps",
+    "API plan review, six real requests, failure report and refresh persistence",
+    "Search and filtered empty state",
+    "Connection error, authentication guidance and recovery",
+    "All six pages at 390, 768 and 1440 px without viewport overflow",
+    "No browser JavaScript errors"
+  ],
+  "passed": 12,
+  "javascript_errors": []
+}

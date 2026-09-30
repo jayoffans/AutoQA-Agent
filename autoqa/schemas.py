@@ -50,6 +50,9 @@ class TaskCreate(BaseModel):
     step_timeout_ms: int = Field(default=8000, ge=500, le=30000)
     task_timeout_seconds: int = Field(default=180, ge=5, le=600)
     strict_runtime_errors: bool = True
+    project_id: str | None = Field(default=None, pattern=r"^[0-9a-fA-F-]{36}$")
+    title: str | None = Field(default=None, min_length=1, max_length=400)
+    test_type: Literal["regression", "smoke", "api"] = "regression"
 
 
 class Approval(BaseModel):
@@ -57,3 +60,74 @@ class Approval(BaseModel):
 
 
 TERMINAL = {"passed", "failed", "cancelled", "interrupted"}
+
+
+class ProjectCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=2000)
+    url: str = Field(min_length=8, max_length=2000)
+
+
+class ProjectPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    description: str | None = Field(default=None, max_length=2000)
+    url: str | None = Field(default=None, min_length=8, max_length=2000)
+
+
+Scenario = Literal["valid_login", "invalid_password", "missing_username", "missing_password",
+                   "malformed_payload", "unauthorized_request"]
+
+
+class APICase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=160)
+    scenario: Scenario
+    description: str = Field(min_length=1, max_length=400)
+    method: Literal["GET", "POST"] = "POST"
+    path: Literal["/demo/api/login", "/demo/api/protected"] = "/demo/api/login"
+    payload: dict | None = None
+    raw_body: str | None = Field(default=None, max_length=2000)
+    expected_status: int = Field(ge=100, le=599)
+    expected_field: Literal["access_token", "error"] | None = None
+
+
+class APIPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    summary: str = Field(min_length=1, max_length=1000)
+    cases: list[APICase] = Field(min_length=6, max_length=6)
+
+    @model_validator(mode="after")
+    def contract(self):
+        expected = {"valid_login": 200, "invalid_password": 401, "missing_username": 400,
+                    "missing_password": 400, "malformed_payload": 400, "unauthorized_request": 401}
+        if {case.scenario for case in self.cases} != set(expected):
+            raise ValueError("Login plan must cover all six contract scenarios exactly once")
+        for case in self.cases:
+            if case.expected_status != expected[case.scenario]:
+                raise ValueError("Expected status must follow the supplied login API contract")
+            if case.scenario == "unauthorized_request":
+                if case.method != "GET" or case.path != "/demo/api/protected":
+                    raise ValueError("Unauthorized scenario must call the protected endpoint")
+            elif case.method != "POST" or case.path != "/demo/api/login":
+                raise ValueError("Login scenarios must POST to the login endpoint")
+            body = case.payload or {}
+            if case.scenario == "valid_login" and body != {"username": "demo", "password": "autoqa123"}:
+                raise ValueError("Valid login must use supplied fixtures")
+            if case.scenario == "invalid_password" and (body.get("username") != "demo" or
+                                                       body.get("password") != "incorrect"):
+                raise ValueError("Invalid password must use supplied negative fixture")
+            if case.scenario == "missing_username" and (body.get("username") or not body.get("password")):
+                raise ValueError("Missing username scenario must omit username only")
+            if case.scenario == "missing_password" and (body.get("password") or not body.get("username")):
+                raise ValueError("Missing password scenario must omit password only")
+            if case.scenario == "malformed_payload":
+                import json
+                try:
+                    json.loads(case.raw_body or "null")
+                except ValueError:
+                    pass
+                else:
+                    raise ValueError("Malformed payload must contain invalid JSON")
+        return self

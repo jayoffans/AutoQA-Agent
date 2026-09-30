@@ -9,5 +9,5 @@ RUN pip install -r requirements.lock && pip install --no-deps . \
     && mkdir -p /app/data /app/artifacts && chown -R autoqa:autoqa /app /ms-playwright
 USER autoqa
 EXPOSE 8765
-HEALTHCHECK --interval=15s --timeout=5s --retries=3 CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/health')"
-CMD ["uvicorn", "autoqa.app:app", "--host", "0.0.0.0", "--port", "8765", "--workers", "1"]
+HEALTHCHECK --interval=15s --timeout=5s --retries=3 CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','8765')+'/api/health')"
+CMD ["python", "-m", "autoqa"]

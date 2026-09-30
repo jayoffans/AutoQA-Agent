@@ -1,0 +1,8 @@
+{
+  "structural_validation": "passed",
+  "docker_compose_config": "not_run",
+  "docker_runtime": "not_run",
+  "mysql_runtime": "not_run",
+  "railway_deployment": "not_run",
+  "unverified_reason": "Docker CLI/engine is not installed on this host"
+}

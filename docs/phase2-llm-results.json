@@ -1,0 +1,25 @@
+{
+  "provider": "deepseek",
+  "real_model_call": true,
+  "project_id": "93fe6b18-9686-49b0-81cb-418c582ab3e0",
+  "task_id": "4a6a9b66-57d6-47a2-8d37-cb33e53f905c",
+  "status": "failed",
+  "total_cases": 6,
+  "passed": 5,
+  "failed": 1,
+  "coverage": 100.0,
+  "findings": 1,
+  "checks": [
+    "project API",
+    "provider generated plan",
+    "human approval",
+    "six real HTTP requests",
+    "persistent workflow",
+    "failure evidence",
+    "persistent report",
+    "secret redaction"
+  ],
+  "model": "deepseek-flash",
+  "restart_persistence": "passed",
+  "workflow_steps": 12
+}

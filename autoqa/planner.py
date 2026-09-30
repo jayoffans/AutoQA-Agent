@@ -1,8 +1,9 @@
 import json
 
-import httpx
+from pydantic import ValidationError
 
 from .config import Settings
+from .providers import ProviderError, get_provider
 from .schemas import Plan, Step, TaskCreate
 from .security import TargetPolicy
 from .telemetry import Telemetry
@@ -52,7 +53,8 @@ class Planner:
         if request.steps:
             plan, mode = Plan(summary=request.goal, steps=request.steps), "structured"
         elif self.settings.model_enabled:
-            plan, mode = await self.model_plan(request, snapshot), "llm"
+            plan = await self.model_plan(request, snapshot)
+            mode = "mock" if self.settings.llm_provider == "mock" else "llm"
         elif self.policy.is_demo(request.target_url):
             plan, mode = demo_plan(request), "demo"
         else:
@@ -76,25 +78,17 @@ class Planner:
             "approval for plans containing input or clicks outside the built-in demo. "
             f"At most {request.max_steps} steps. Schema: {json.dumps(Plan.model_json_schema())}"
         )
-        payload = {"model": self.settings.llm_model, "temperature": 0,
-                   "messages": [{"role": "system", "content": system},
-                                {"role": "user", "content": json.dumps({"goal": request.goal,
-                                 "target_url": request.target_url, "page_evidence": snapshot}, ensure_ascii=False)}],
-                   "response_format": {"type": "json_object"}}
-        with self.telemetry.span("test-planner-model", {"model": self.settings.llm_model,
+        with self.telemetry.span("test-planner-model", {"model": self.settings.model_name,
                                                         "target_url": request.target_url}, generation=True) as span:
-            async with httpx.AsyncClient(timeout=45) as client:
-                response = await client.post(self.settings.llm_base_url.rstrip("/") + "/chat/completions",
-                                             headers={"Authorization": f"Bearer {self.settings.llm_api_key}"},
-                                             json=payload)
-                if response.is_error:
-                    raise ValueError(f"Model request failed with HTTP {response.status_code}")
-                data = response.json()
-            content = data["choices"][0]["message"]["content"].strip()
-            if content.startswith("```"):
-                content = content.split("\n", 1)[1].rsplit("```", 1)[0]
-            plan = Plan.model_validate_json(content)
+            provider = get_provider(self.settings)
+            data = await provider.generate(system, {"goal": request.goal,
+                "target_url": request.target_url, "page_evidence": snapshot}, Plan.model_json_schema())
+            try:
+                plan = Plan.model_validate(data)
+            except ValidationError:
+                raise ProviderError("LLM returned a plan that failed schema validation; nothing was executed") from None
             if span:
                 span.update(output={"summary": plan.summary, "step_count": len(plan.steps)},
-                            model=self.settings.llm_model, usage_details=data.get("usage"))
+                            model=getattr(provider, "model", self.settings.model_name),
+                            usage_details=getattr(provider, "usage", None))
             return plan

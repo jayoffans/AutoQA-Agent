@@ -3,6 +3,7 @@ import logging
 
 from langgraph.types import Command
 
+from .api_workflow import APIWorkflow
 from .schemas import TERMINAL
 
 log = logging.getLogger(__name__)
@@ -11,6 +12,7 @@ log = logging.getLogger(__name__)
 class Runner:
     def __init__(self, workflow, store, concurrency):
         self.workflow, self.store = workflow, store
+        self.api_workflow = APIWorkflow(workflow.settings, store, workflow.policy)
         self.semaphore = asyncio.Semaphore(concurrency)
         self.jobs: dict[str, asyncio.Task] = {}
 
@@ -26,6 +28,10 @@ class Runner:
                 if task["status"] in TERMINAL:
                     return
                 self.store.update(task_id, status="running", approval=None)
+                if task["request"].get("test_type") == "api":
+                    async with asyncio.timeout(task["request"]["task_timeout_seconds"]):
+                        await self.api_workflow.run(task_id, resume)
+                    return
                 config = {"configurable": {"thread_id": task_id}, "recursion_limit": 300}
                 initial = (Command(resume=resume) if resume is not None else
                            {"task_id": task_id, "request": task["request"], "cursor": 0, "attempt": 0})

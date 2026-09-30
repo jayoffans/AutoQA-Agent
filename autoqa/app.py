@@ -6,15 +6,15 @@ from pathlib import Path
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from .config import Settings
 from .reports import report_html
 from .runner import Runner
-from .schemas import TERMINAL, Approval, TaskCreate
-from .security import TargetPolicy
+from .schemas import TERMINAL, Approval, ProjectCreate, ProjectPatch, TaskCreate
+from .security import TargetPolicy, origin
 from .store import Store
 from .telemetry import Telemetry
 from .workflow import Workflow
@@ -30,7 +30,7 @@ def create_app(settings: Settings | None = None):
     async def lifespan(app):
         settings.data_dir.mkdir(parents=True, exist_ok=True)
         settings.artifact_dir.mkdir(parents=True, exist_ok=True)
-        store = Store(settings.database_url)
+        store = Store(settings.database_url, settings.artifact_dir, settings.studio_url + "/demo/login.html")
         store.recover()
         async with AsyncSqliteSaver.from_conn_string(str(settings.data_dir / "checkpoints.sqlite")) as saver:
             await saver.setup()
@@ -43,8 +43,8 @@ def create_app(settings: Settings | None = None):
                 await app.state.runner.shutdown()
                 store.engine.dispose()
 
-    app = FastAPI(title="AutoQA Agent", version="1.0.0", lifespan=lifespan,
-                  description="自然语言 Web 测试、人工审批、可复核的故障证据与持久化检查点")
+    app = FastAPI(title="AutoQA Studio", version="1.0.0", lifespan=lifespan,
+                  description="AI-powered Software Quality Engineering Platform")
 
     def auth(authorization: str | None = Header(default=None), token: str | None = Query(default=None)):
         if settings.api_token:
@@ -67,7 +67,52 @@ def create_app(settings: Settings | None = None):
         return {"status": "ok", "version": "1.0.0", "model_enabled": settings.model_enabled,
                 "mcp_enabled": settings.mcp_enabled,
                 "database": "mysql" if settings.database_url.startswith("mysql") else "sqlite",
-                "authentication_required": bool(settings.api_token)}
+                "authentication_required": bool(settings.api_token), "llm_provider": settings.llm_provider}
+
+    @app.get("/api/dashboard", dependencies=[Depends(auth)])
+    def dashboard():
+        return app.state.store.dashboard()
+
+    @app.get("/api/projects", dependencies=[Depends(auth)])
+    def projects():
+        return app.state.store.projects()
+
+    @app.post("/api/projects", status_code=201, dependencies=[Depends(auth)])
+    def create_project(data: ProjectCreate):
+        try:
+            origin(data.url)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        return app.state.store.create_project(data)
+
+    @app.get("/api/projects/{project_id}", dependencies=[Depends(auth)])
+    def project_detail(project_id: str):
+        project = app.state.store.project(project_id)
+        if not project:
+            raise HTTPException(404, "Project not found")
+        return project
+
+    @app.patch("/api/projects/{project_id}", dependencies=[Depends(auth)])
+    def update_project(project_id: str, data: ProjectPatch):
+        try:
+            if data.url:
+                origin(data.url)
+            return app.state.store.change_project(project_id, data.model_dump(exclude_unset=True))
+        except KeyError:
+            raise HTTPException(404, "Project not found") from None
+        except ValueError as error:
+            raise HTTPException(409 if "Built-in" in str(error) else 422, str(error)) from None
+
+    @app.delete("/api/projects/{project_id}", status_code=204, dependencies=[Depends(auth)])
+    def delete_project(project_id: str):
+        try:
+            # Archive instead of cascading away test history and evidence.
+            app.state.store.change_project(project_id, {"archived": True})
+        except KeyError:
+            raise HTTPException(404, "Project not found") from None
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from None
+        return Response(status_code=204)
 
     @app.get("/api/tasks", dependencies=[Depends(auth)])
     def tasks():
@@ -77,6 +122,14 @@ def create_app(settings: Settings | None = None):
     async def create(request: TaskCreate):
         try:
             policy.validate(request.target_url)
+            if request.project_id and not app.state.store.project(request.project_id):
+                raise ValueError("Project not found or archived")
+            if request.test_type == "api":
+                from urllib.parse import urlsplit
+                if not policy.is_demo(request.target_url) or urlsplit(request.target_url).path != "/demo/api/login":
+                    raise ValueError("API demo currently supports only the Studio /demo/api/login endpoint")
+                if request.steps:
+                    raise ValueError("API plans are generated through the configured provider; omit browser steps")
             if request.steps:
                 from .schemas import Plan
                 Plan(summary=request.goal, steps=request.steps)
@@ -87,8 +140,8 @@ def create_app(settings: Settings | None = None):
                         policy.validate(step.value)
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
-        outstanding = [t for t in app.state.store.list(200) if t["status"] not in TERMINAL]
-        if len(outstanding) >= 20:
+        counts = app.state.store.dashboard()
+        if counts["running"] + counts["awaiting_approval"] >= 20:
             raise HTTPException(429, "Too many outstanding tasks; complete or cancel existing tasks")
         task_id = app.state.store.create(request)
         app.state.runner.submit(task_id)
@@ -100,6 +153,25 @@ def create_app(settings: Settings | None = None):
         directory = settings.artifact_dir / task_id
         task["artifacts"] = sorted(p.name for p in directory.glob("*") if p.is_file()) if directory.exists() else []
         return task
+
+    @app.patch("/api/tasks/{task_id}/project", dependencies=[Depends(auth)])
+    def assign_project(task_id: str, data: dict):
+        get_task(task_id)
+        if set(data) != {"project_id"} or not isinstance(data["project_id"], str):
+            raise HTTPException(422, "Provide project_id only")
+        try:
+            app.state.store.reassign_task(task_id, data["project_id"])
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        return get_task(task_id)
+
+    @app.get("/api/tasks/{task_id}/workflow", dependencies=[Depends(auth)])
+    def workflow_history(task_id: str):
+        return get_task(task_id)["workflow_steps"]
+
+    @app.get("/api/tasks/{task_id}/findings", dependencies=[Depends(auth)])
+    def findings(task_id: str):
+        return get_task(task_id)["findings"]
 
     @app.post("/api/tasks/{task_id}/approve", status_code=202, dependencies=[Depends(auth)])
     async def approve(task_id: str, answer: Approval):
@@ -161,7 +233,28 @@ def create_app(settings: Settings | None = None):
         task = get_task(task_id)
         if format == "json":
             return task
-        return HTMLResponse(report_html(task), headers={"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'"})
+        return HTMLResponse(app.state.store.report_content(task_id) or report_html(task),
+                            headers={"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'"})
+
+    @app.post("/demo/api/login")
+    async def demo_login(request: Request):
+        try:
+            payload = await request.json()
+        except (ValueError, UnicodeError):
+            return JSONResponse({"error": "Malformed JSON"}, status_code=400)
+        if not isinstance(payload, dict) or not payload.get("username") or not payload.get("password"):
+            return JSONResponse({"error": "Username and password are required"}, status_code=400)
+        valid = payload["username"] == "demo" and (payload["password"] == "autoqa123" or settings.demo_login_fault)
+        if not valid:
+            return JSONResponse({"error": "Invalid credentials"}, status_code=401)
+        # Deliberate, documented fault switch; the tests assert against the correct API contract.
+        return {"access_token": "demo-test-token", "token_type": "bearer"}
+
+    @app.get("/demo/api/protected")
+    def demo_protected(authorization: str | None = Header(default=None)):
+        if authorization != "Bearer demo-test-token":
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+        return {"username": "demo"}
 
     @app.get("/demo/api/broken")
     def broken():
