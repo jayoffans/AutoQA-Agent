@@ -46,6 +46,9 @@ jobs:
           PY
           python scripts/verify_studio.py --output work/studio-qa
       - run: python scripts/validate_deployment.py
+      - run: python scripts/validate_production.py
+      - name: Production public Demo browser acceptance
+        run: python -c "from scripts.verify_phase3 import run_checks; run_checks(True)"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -54,3 +57,35 @@ jobs:
             work/test-results.xml
             work/studio-qa/studio-ui-results.json
             work/studio-qa/*.png
+            docs/assets/public-ui-results.json
+  mysql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: autoqa_ci
+          MYSQL_USER: autoqa
+          MYSQL_PASSWORD: autoqa-ci-fixture
+          MYSQL_ROOT_PASSWORD: autoqa-ci-root-fixture
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost --silent"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.lock && pip install --no-deps -e .
+      - name: SQLite and real MySQL compatibility
+        env:
+          AUTOQA_TEST_MYSQL_URL: mysql+pymysql://autoqa:autoqa-ci-fixture@127.0.0.1:3306/autoqa_ci
+        run: pytest tests/test_database_compatibility.py -q --junitxml=work/mysql-results.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mysql-results
+          path: work/mysql-results.xml

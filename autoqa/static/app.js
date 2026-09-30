@@ -63,7 +63,7 @@ function renderTasks() {
 }
 function renderSelectors() {
   for (const id of ['workflow-task','report-task']) {
-    const options = tasks.length ? tasks.map(t => `<option value="${esc(t.id)}">${esc(t.goal.slice(0,48))} · ${esc(t.id.slice(0,8))}</option>`).join('') : '<option value="">暂无测试任务</option>';
+    const options = tasks.length ? tasks.map(t => `<option value="${esc(t.id)}">${esc((t.title || t.goal).slice(0,48))} · ${esc(t.id.slice(0,8))}</option>`).join('') : '<option value="">暂无测试任务</option>';
     if ($(id).innerHTML !== options) $(id).innerHTML = options;
     if (selected) $(id).value = selected;
     $(id).disabled = !tasks.length;
@@ -74,6 +74,20 @@ function renderSelectors() {
 function renderAll() { renderDashboard(); renderTasks(); renderProjects(); renderSelectors(); }
 async function loadHealth() {
   health = await (await api('/api/health')).json();
+  if (health.demo_mode) {
+    document.querySelectorAll('[data-action="new-project"], [data-view="settings"], a[href="/docs"], .secondary-label').forEach(e => e.hidden = true);
+    document.querySelector('.workspace small').textContent = 'Public Demo · 每日有限额度';
+    document.querySelector('.profile small').textContent = 'Public Demo · v1.0';
+    $('settings-view').innerHTML = '<div class="info-note">Public Demo：服务配置由维护者管理。</div>';
+    $('templates').innerHTML = '<button type="button" class="template" data-template="api">Login API Quality Demo</button>';
+    $('target').readOnly = true; $('goal').readOnly = true;
+    $('test-type').innerHTML = '<option value="api">API · Login 契约测试</option>';
+    $('test-type').disabled = true;
+    document.querySelector('.advanced').hidden = true;
+    document.querySelector('.checkbox-row').hidden = true;
+    document.querySelector('.templates-title span').textContent = '受控 Login API 执行';
+    $('mode-label').title = 'Seed / Mock 演示使用受控接口，结果来自后端；不代表真实模型调用。';
+  }
   $('mode-label').textContent = health.llm_provider === 'mock' ? 'Mock provider' : health.model_enabled ? 'Model connected' : 'Demo templates';
   $('connection-info').innerHTML = [['服务', 'Connected · v'+health.version], ['规划模型', health.model_enabled ? '已连接' : 'Demo / Structured'], ['数据库', health.database.toUpperCase()], ['Chrome DevTools MCP', health.mcp_enabled ? 'Enabled' : 'Disabled'], ['API 认证', health.authentication_required ? 'Enabled' : 'Local mode']].map(([k,v]) => `<div class="connection-row"><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join('');
 }
@@ -173,7 +187,7 @@ async function loadDetail(id) {
   if (!events.length && task.workflow_steps?.length) renderPersistedHistory(task);
   $('detail-id').textContent = id.slice(0,8)+' / '+(task.planner_mode || 'planning');
   const p = planInfo(task);
-  $('workflow-context').innerHTML = `<div><span class="small-label">${esc(projectFor(task).name)}</span><h2>${esc(task.request.goal)}</h2></div>${badge(task.status)}`;
+  $('workflow-context').innerHTML = `<div><span class="small-label">${esc(projectFor(task).name)}</span><h2>${esc(task.title || task.request.goal)}</h2></div>${badge(task.status)}`;
   renderStages(task);
   $('plan-summary').textContent = task.plan?.summary || (terminal.has(task.status) ? '本次任务未生成可执行计划。' : '正在读取页面并生成计划。');
   $('plan-metrics').innerHTML = `<div><span>Test Cases</span><strong>${task.plan ? p.cases : '—'}</strong><small>${p.count} 个操作步骤</small></div><div><span>Covered Modules</span><strong>${task.plan ? p.modules.length : '—'}</strong><small title="${esc(p.modules.join(', '))}">${esc(p.modules.join(', ') || '等待规划')}</small></div><div><span>Risk Level</span>${badge(p.risk)}<small>按写操作与审批要求分级</small></div>`;
@@ -190,7 +204,7 @@ async function loadDetail(id) {
 function updateType() {
   const smoke = $('test-type').value === 'smoke';
   const apiTest = $('test-type').value === 'api';
-  $('type-note').textContent = apiTest ? 'Login API Testing：Provider 生成六类请求计划，审核后真实执行。内置站点可控的密码校验缺陷用于展示 Finding；无密钥请配置 LLM_PROVIDER=mock。' : smoke ? '冒烟测试使用固定结构化计划：导航到目标地址并断言页面 body 可见，同时检查运行异常。' : '业务回归按测试目标规划；无模型时使用内置场景。写操作先等待审核。';
+  $('type-note').textContent = health?.demo_mode ? `Public Demo：每日全局 ${health.demo_daily_limit} 个任务，每个来源 ${health.demo_ip_limit} 个。审核六类计划后执行受控接口；超额仍可查看示例报告。` : apiTest ? 'Login API Testing：Provider 生成六类请求计划，审核后真实执行。内置站点可控的密码校验缺陷用于展示 Finding；无密钥请配置 LLM_PROVIDER=mock。' : smoke ? '冒烟测试使用固定结构化计划：导航到目标地址并断言页面 body 可见，同时检查运行异常。' : '业务回归按测试目标规划；无模型时使用内置场景。写操作先等待审核。';
 }
 function pickTemplate(name) {
   const t = templates[name], p = name === 'api' ? projects.find(p => p.builtin && p.url.includes('/api/')) : demoProject();
@@ -206,6 +220,7 @@ function openTask(projectId) {
   $('create-error').hidden = true;
   if (projectId) { const p = list.find(p => p.id === projectId); if (p) { $('project').value = p.id; $('target').value = p.url; $('goal').value = ''; } }
   else if (!$('target').value) pickTemplate('login');
+  if (health?.demo_mode) pickTemplate('api');
   updateType(); $('task-dialog').showModal();
 }
 async function download(path, name) {
@@ -262,7 +277,7 @@ document.addEventListener('click',async e => {
     if (a === 'refresh') { health = null; await refresh(); }
     if (a === 'new-task') openTask();
     if (a === 'new-project') { delete $('project-form').dataset.edit; $('project-form').reset(); $('project-error').hidden = true; $('project-dialog').showModal(); }
-    if (a === 'demo') { openTask(); pickTemplate('login'); $('demo-approve').checked = false; }
+    if (a === 'demo') { openTask(); pickTemplate(health?.demo_mode ? 'api' : 'login'); $('demo-approve').checked = false; }
     if (a === 'workflow') navigate('workflow');
   }
   const approval = e.target.closest('[data-approval]'); if (approval) {

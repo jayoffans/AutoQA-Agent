@@ -10,9 +10,9 @@ log = logging.getLogger(__name__)
 
 
 class Runner:
-    def __init__(self, workflow, store, concurrency):
+    def __init__(self, workflow, store, concurrency, demo_app=None):
         self.workflow, self.store = workflow, store
-        self.api_workflow = APIWorkflow(workflow.settings, store, workflow.policy)
+        self.api_workflow = APIWorkflow(workflow.settings, store, workflow.policy, demo_app=demo_app)
         self.semaphore = asyncio.Semaphore(concurrency)
         self.jobs: dict[str, asyncio.Task] = {}
 
@@ -51,8 +51,10 @@ class Runner:
             self.store.event(task_id, "cancelled", {"message": "执行已取消"})
         except Exception as error:
             category = "task_timeout" if isinstance(error, TimeoutError) else "agent_error"
-            diagnosis = {"category": category, "summary": type(error).__name__,
-                         "suggestion": str(error)[:1500], "root_cause_confirmed": False}
+            public = self.workflow.settings.env == "production" or self.workflow.settings.demo_mode
+            diagnosis = {"category": category, "summary": "Task could not complete" if public else type(error).__name__,
+                         "suggestion": "Please retry later or review the Demo report." if public else str(error)[:1500],
+                         "root_cause_confirmed": False}
             self.store.update(task_id, status="failed", diagnosis=diagnosis, approval=None)
             self.store.event(task_id, "error", diagnosis)
             log.warning("Task %s failed: %s", task_id, type(error).__name__)

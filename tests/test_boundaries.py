@@ -14,7 +14,7 @@ from autoqa.telemetry import Telemetry
 
 @pytest.fixture
 def protected(tmp_path):
-    settings = Settings(data_dir=tmp_path / "data", artifact_dir=tmp_path / "artifacts",
+    settings = Settings(_env_file=None, data_dir=tmp_path / "data", artifact_dir=tmp_path / "artifacts",
                         database_url=f"sqlite:///{tmp_path / 'db.sqlite'}", api_token="test-only-token")
     with TestClient(create_app(settings)) as client:
         yield client
@@ -44,7 +44,7 @@ def test_plan_limits_and_assertions(protected):
 
 
 def test_model_adapter_validates_real_response(monkeypatch):
-    settings = Settings(llm_api_key="test-only-key", llm_model="fixture-model")
+    settings = Settings(_env_file=None, llm_provider="compatible", llm_api_key="test-only-key", llm_model="fixture-model")
     plan = {"summary": "检查测试标题", "steps": [
         {"action": "assert_text", "value": "测试报名表", "description": "检查标题"}]}
     real_client = httpx.AsyncClient

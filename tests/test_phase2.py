@@ -225,6 +225,6 @@ def test_api_plan_resume_after_restart_executes_real_endpoint_contract(settings,
 
 def test_production_requires_auth_and_port_is_not_hardcoded():
     with pytest.raises(ValueError, match="AUTOQA_API_TOKEN"):
-        Settings(_env_file=None, env="production")
+        Settings(_env_file=None, env="production", demo_mode=False)
     value = Settings(_env_file=None, env="production", api_token="test-token", port=9000)
     assert value.studio_url == "http://127.0.0.1:9000"

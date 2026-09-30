@@ -1,6 +1,11 @@
 .git
 .venv
 .env
+.env.*
+*.db
+*.sqlite
+*.sqlite3
+*.log
 data
 artifacts
 work

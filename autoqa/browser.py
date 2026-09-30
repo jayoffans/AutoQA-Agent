@@ -146,7 +146,8 @@ class BrowserSession:
                 case "screenshot":
                     pass
         except Exception as error:
-            result.update(ok=False, error=str(error)[:3500], error_type=type(error).__name__)
+            result.update(ok=False, error="Browser operation failed; review the evidence." if
+                          self.settings.env == "production" else str(error)[:3500], error_type=type(error).__name__)
         result["duration_ms"] = round((time.monotonic() - start) * 1000)
         return result
 
@@ -159,7 +160,7 @@ class BrowserSession:
             dom = await self.page.evaluate(DOM_SCRIPT)
             (self.directory / names["dom"]).write_text(dom["html"], encoding="utf-8")
         except Exception as error:
-            names = {"capture_error": str(error)[:300]}
+            names = {"capture_error": "Evidence capture failed" if self.settings.env == "production" else str(error)[:300]}
             dom = {"text": "", "title": ""}
         evidence = redact({"console": self.console[-100:], "network": self.network[-150:],
                            "blocked": self.blocked[-50:], "url": safe_url(self.page.url),

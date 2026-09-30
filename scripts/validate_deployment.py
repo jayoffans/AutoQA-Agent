@@ -20,7 +20,8 @@ assert application["volumes"] and compose["services"]["mysql"]["volumes"]
 assert yaml.safe_load((root / "docker-compose.yml").read_text())["include"] == ["compose.yaml"]
 railway = tomllib.loads((root / "railway.toml").read_text())
 assert railway["build"]["builder"] == "DOCKERFILE"
-assert railway["deploy"]["healthcheckPath"] == "/api/health"
+assert railway["deploy"]["healthcheckPath"] == "/health"
+assert railway["deploy"]["startCommand"] == "python -m autoqa"
 dockerfile = (root / "Dockerfile").read_text()
 assert 'CMD ["python", "-m", "autoqa"]' in dockerfile and "USER autoqa" in dockerfile
 for name in ["Dockerfile", "compose.yaml", "docker-compose.yml", "railway.toml"]:

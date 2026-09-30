@@ -60,7 +60,7 @@ def report_html(task: dict) -> str:
             ("Total Cases", metrics["total"], "计划中的显式断言"),
             ("Passed", metrics["passed"], "按最终尝试统计"),
             ("Failed", metrics["failed"], f'{metrics["pending"]} 个断言未执行'),
-            ("Coverage", f'{metrics["coverage"]}%' if metrics["coverage"] is not None else "—", "计划断言执行覆盖率"),
+            ("Execution Coverage", f'{metrics["coverage"]}%' if metrics["coverage"] is not None else "—", "计划断言执行覆盖率 · 非代码覆盖率"),
         ]
     )
     preview = ("" if task["status"] in {"passed", "failed", "cancelled", "interrupted"}

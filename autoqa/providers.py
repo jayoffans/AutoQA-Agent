@@ -24,7 +24,7 @@ class OpenAIProvider:
     async def generate(self, system: str, context: dict, schema: dict) -> dict:
         if not self.key or not self.model:
             raise ProviderError("LLM provider requires its API key and LLM_MODEL")
-        payload = {"model": self.model, "temperature": 0,
+        payload = {"model": self.model, "temperature": 0, "max_tokens": 4096,
                    "messages": [{"role": "system", "content": system + " JSON schema: " + json.dumps(schema)},
                                 {"role": "user", "content": json.dumps(context, ensure_ascii=False)}],
                    "response_format": {"type": "json_object"}}

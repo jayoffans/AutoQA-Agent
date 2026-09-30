@@ -12,8 +12,9 @@ from .security import redact
 
 
 class APIWorkflow:
-    def __init__(self, settings, store, policy):
+    def __init__(self, settings, store, policy, demo_app=None):
         self.settings, self.store, self.policy = settings, store, policy
+        self.demo_app = demo_app
 
     async def run(self, task_id, resume):
         task = self.store.get(task_id, private=True)
@@ -60,8 +61,9 @@ class APIWorkflow:
         parts = urlsplit(task["request"]["target_url"])
         failed = []
         # No retries for POST, and no redirect following outside the configured policy.
+        options = {"transport": httpx.ASGITransport(app=self.demo_app)} if self.demo_app else {}
         async with httpx.AsyncClient(timeout=task["request"]["step_timeout_ms"] / 1000,
-                                     follow_redirects=False, trust_env=False) as client:
+                                     follow_redirects=False, trust_env=False, **options) as client:
             for index, case in enumerate(cases):
                 url = urlunsplit((parts.scheme, parts.netloc, case.path, "", ""))
                 self.policy.validate(url)
@@ -85,7 +87,8 @@ class APIWorkflow:
                     error = None if ok else f"{case.name}: expected HTTP {case.expected_status}, received HTTP {received_status}; verify response contract"
                 except httpx.HTTPError:
                     ok, error = False, f"{case.name}: HTTP request failed or timed out"
-                evidence = redact({"method": case.method, "path": case.path, "request": case.payload,
+                evidence = redact({"source": "local-asgi-fixture" if self.demo_app else "http-service",
+                    "method": case.method, "path": case.path, "request": case.payload,
                     "raw_body": case.raw_body, "expected_status": case.expected_status,
                     "received_status": received_status, "response": response_data})
                 directory = self.settings.artifact_dir / task_id

@@ -1,4 +1,5 @@
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -7,7 +8,10 @@ from pathlib import Path
 import httpx
 import pytest
 
-BASE_URL = "http://127.0.0.1:8765"
+with socket.socket() as port_socket:
+    port_socket.bind(("127.0.0.1", 0))
+    TEST_PORT = int(os.getenv("AUTOQA_TEST_PORT", str(port_socket.getsockname()[1])))
+BASE_URL = f"http://127.0.0.1:{TEST_PORT}"
 
 
 class LiveServer:
@@ -20,12 +24,16 @@ class LiveServer:
                     "AUTOQA_DATABASE_URL": f"sqlite:///{directory / 'tasks.db'}",
                     "AUTOQA_LLM_API_KEY": "", "AUTOQA_LLM_MODEL": "",
                     "AUTOQA_MCP_ENABLED": "false", "AUTOQA_API_TOKEN": "",
+                    "DEMO_MODE": "false", "AUTOQA_SEED_DEMO": "false", "AUTOQA_ENV": "test",
+                    "DATABASE_URL": f"sqlite:///{directory / 'tasks.db'}", "LLM_PROVIDER": "compatible",
+                    "OPENAI_API_KEY": "", "DEEPSEEK_API_KEY": "", "LLM_MODEL": "",
+                    "PORT": str(TEST_PORT), "AUTOQA_PUBLIC_BASE_URL": "", "RAILWAY_PUBLIC_DOMAIN": "",
                     "LANGFUSE_PUBLIC_KEY": "", "LANGFUSE_SECRET_KEY": ""}
 
     def start(self):
         self.logfile = (self.directory / "server.log").open("a", encoding="utf-8")
         self.process = subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "autoqa.app:app", "--host", "127.0.0.1", "--port", "8765"],
+            [sys.executable, "-m", "uvicorn", "autoqa.app:app", "--host", "127.0.0.1", "--port", str(TEST_PORT)],
             env=self.env, stdout=self.logfile, stderr=self.logfile,
         )
         end = time.monotonic() + 25

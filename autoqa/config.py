@@ -13,7 +13,7 @@ class Settings(BaseSettings):
                               validation_alias=AliasChoices("DATABASE_URL", "AUTOQA_DATABASE_URL"))
     data_dir: Path = Path("data")
     artifact_dir: Path = Path("artifacts")
-    allowed_origins: str = "http://127.0.0.1:8765,http://localhost:8765"
+    allowed_origins: str = ""
     resource_origins: str = ""
     headless: bool = True
     concurrency: int = Field(default=2, ge=1, le=8)
@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     openai_api_key: str = Field(default="", repr=False, validation_alias="OPENAI_API_KEY")
     deepseek_api_key: str = Field(default="", repr=False, validation_alias="DEEPSEEK_API_KEY")
     port: int = Field(default=8765, ge=1, le=65535, validation_alias="PORT")
+    host: str = Field(default="0.0.0.0", validation_alias="HOST")
+    demo_mode: bool | None = Field(default=None, validation_alias="DEMO_MODE")
+    demo_daily_limit: int = Field(default=20, ge=0, le=1000, validation_alias="DEMO_DAILY_LIMIT")
+    demo_ip_limit: int = Field(default=3, ge=0, le=100, validation_alias="DEMO_IP_LIMIT")
+    demo_llm_enabled: bool = Field(default=False, validation_alias="DEMO_LLM_ENABLED")
+    seed_demo: bool | None = None
     env: Literal["development", "production", "test"] = "development"
     public_base_url: str = ""
     demo_login_fault: bool = True
@@ -70,6 +76,25 @@ class Settings(BaseSettings):
             self.public_base_url = "https://" + os.environ["RAILWAY_PUBLIC_DOMAIN"]
         if self.database_url.startswith("mysql://"):
             self.database_url = "mysql+pymysql://" + self.database_url[len("mysql://"):]
-        if self.env == "production" and not self.api_token:
+        if self.demo_mode is None:
+            self.demo_mode = self.env == "production"
+        if self.seed_demo is None:
+            self.seed_demo = bool(self.demo_mode)
+        if self.env == "production":
+            self.mcp_enabled = False
+        if self.env == "production" and not self.demo_mode and not self.api_token:
             raise ValueError("AUTOQA_API_TOKEN is required in production")
+        if self.demo_mode:
+            self.mcp_enabled = False
+            if not self.demo_llm_enabled:
+                self.llm_provider = "mock"
+        from sqlalchemy.engine import make_url
+        url = make_url(self.database_url)
+        if url.drivername in {"mysql", "mysql+mysqlconnector", "mysql+mysqldb"}:
+            url = url.set(drivername="mysql+pymysql")
+        if url.drivername == "mysql+pymysql":
+            url = url.update_query_dict({"charset": "utf8mb4"})
+        elif not url.drivername.startswith("sqlite"):
+            raise ValueError("Use a SQLite or MySQL DATABASE_URL")
+        self.database_url = url.render_as_string(hide_password=False)
         return self

@@ -3,10 +3,25 @@ from datetime import datetime
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, create_engine, event, func, select
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    create_engine,
+    event,
+    func,
+    or_,
+    select,
+)
+from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
+from .config import Settings
+from .demo_guard import DemoOwnerRow, DemoQuotaRow, reserve
 from .reports import report_html, report_issues, report_metrics
 from .schemas import TERMINAL, ProjectCreate, TaskCreate
 from .security import redact
@@ -51,13 +66,13 @@ class EventRow(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     task_id: Mapped[str] = mapped_column(ForeignKey("tasks.id"), index=True)
     kind: Mapped[str] = mapped_column(String(50))
-    payload: Mapped[str] = mapped_column(Text)
+    payload: Mapped[str] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
 class Store:
     def __init__(self, url: str, artifact_dir: Path | None = None,
-                 demo_url: str = "http://127.0.0.1:8765/demo/login.html"):
+                 demo_url: str | None = None):
         database = make_url(url)
         if database.drivername.startswith("sqlite") and database.database not in {None, "", ":memory:"}:
             Path(database.database).parent.mkdir(parents=True, exist_ok=True)
@@ -71,13 +86,21 @@ class Store:
                 connection.execute("PRAGMA foreign_keys=ON")
         self.artifact_dir = artifact_dir
         Base.metadata.create_all(self.engine)
-        self.bootstrap(demo_url)
+        self.bootstrap(demo_url or Settings(_env_file=None).studio_url + "/demo/login.html")
+        with Session(self.engine) as session:
+            if not session.get(DemoQuotaRow, "global"):
+                session.add(DemoQuotaRow(id="global", day="", count=0))
+                session.commit()
 
-    def create(self, request: TaskCreate) -> str:
+    def create(self, request: TaskCreate, *, source=None, owner=None, settings=None) -> str:
         task_id = str(uuid4())
         with Session(self.engine) as s:
+            if source is not None:
+                reserve(s, source, settings)
             s.add(TaskRow(id=task_id, status="queued", request=request.model_dump()))
             s.flush()
+            if source is not None:
+                s.add(DemoOwnerRow(task_id=task_id, owner=owner))
             project = self.resolve_project(s, request.project_id, request.target_url)
             s.add(TaskMetadataRow(task_id=task_id, project_id=project.id,
                                   title=request.title or request.goal[:400], test_type=request.test_type))
@@ -87,6 +110,11 @@ class Store:
             s.commit()
         self.event(task_id, "queued", {"message": "测试任务已加入队列"})
         return task_id
+
+    def owns(self, task_id, owner):
+        with Session(self.engine) as session:
+            row = session.get(DemoOwnerRow, task_id)
+            return bool(row and row.owner == owner)
 
     def update(self, task_id: str, **changes):
         with Session(self.engine) as s:
@@ -149,12 +177,16 @@ class Store:
                                  "created_at": stored_report.created_at.isoformat()} if stored_report else None)
             return result if private else redact(result)
 
-    def list(self, limit: int = 50):
+    def list(self, limit: int = 50, *, owner=None, seed_id=None):
         with Session(self.engine) as s:
-            rows = s.execute(select(TaskRow, TaskMetadataRow, ProjectRow.name)
-                .outerjoin(TaskMetadataRow, TaskMetadataRow.task_id == TaskRow.id)
-                .outerjoin(ProjectRow, TaskMetadataRow.project_id == ProjectRow.id)
-                .order_by(TaskRow.created_at.desc()).limit(limit))
+            query = (select(TaskRow, TaskMetadataRow, ProjectRow.name)
+                     .outerjoin(TaskMetadataRow, TaskMetadataRow.task_id == TaskRow.id))
+            query = query.outerjoin(ProjectRow, TaskMetadataRow.project_id == ProjectRow.id)
+            if owner is not None:
+                owned = select(DemoOwnerRow.task_id).where(DemoOwnerRow.owner == owner)
+                query = query.where(or_(TaskRow.id == seed_id, TaskRow.id.in_(owned)))
+                query = query.order_by((TaskRow.id == seed_id).desc())
+            rows = s.execute(query.order_by(TaskRow.created_at.desc()).limit(limit))
             return [{"id": r.id, "status": r.status, "goal": r.request["goal"],
                      "target_url": r.request["target_url"], "created_at": r.created_at.isoformat(),
                      "planner_mode": r.planner_mode,
