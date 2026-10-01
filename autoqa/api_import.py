@@ -14,7 +14,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from .product_models import ApiEndpointRow, ApiSpecRow
+from .product_models import ApiEndpointRow, ApiSpecRow, TestPlan
 from .studio_models import ProjectRow
 
 MAX_UPLOAD_BYTES = 1_000_000
@@ -230,6 +230,9 @@ def delete_spec(project_id: str, spec_id: str, request: Request):
         row = session.scalar(select(ApiSpecRow).where(ApiSpecRow.id == spec_id, *scope(ApiSpecRow, request, project_id)))
         if not row:
             raise HTTPException(404, "接口文档不存在")
+        if session.scalar(select(TestPlan.id).where(TestPlan.api_spec_id == spec_id,
+                                                    *scope(TestPlan, request, project_id)).limit(1)):
+            raise HTTPException(409, "此接口文档已关联测试计划，请保留文档以便查看计划")
         session.execute(delete(ApiEndpointRow).where(ApiEndpointRow.spec_id == spec_id,
                                                      *scope(ApiEndpointRow, request, project_id)))
         session.delete(row)

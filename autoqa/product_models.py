@@ -138,6 +138,7 @@ class ApiSpecRow(Base):
 class ApiEndpointRow(Base):
     __tablename__ = "api_endpoints"
     __table_args__ = (
+        UniqueConstraint("id", "workspace_id", name="uq_api_endpoints_workspace"),
         ForeignKeyConstraint(["project_id", "workspace_id"], ["projects.id", "projects.workspace_id"],
                              name="fk_api_endpoints_project_workspace"),
         ForeignKeyConstraint(["spec_id", "project_id", "workspace_id"],
@@ -154,4 +155,49 @@ class ApiEndpointRow(Base):
     parameters: Mapped[list] = mapped_column(JSON)
     request_schema: Mapped[dict] = mapped_column(JSON)
     response_schema: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class TestPlan(Base):
+    """Independent from legacy task-based Demo plans."""
+    __tablename__ = "ai_test_plans"
+    __table_args__ = (
+        ForeignKeyConstraint(["api_spec_id", "project_id", "workspace_id"],
+                             ["api_specs.id", "api_specs.project_id", "api_specs.workspace_id"],
+                             name="fk_ai_plan_spec_scope"),
+        UniqueConstraint("id", "workspace_id", name="uq_ai_plan_workspace"),
+        CheckConstraint("status IN ('draft','generating','ready','failed','approved')", name="ck_ai_plan_status"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    api_spec_id: Mapped[str] = mapped_column(String(36), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="draft")
+    provider: Mapped[str] = mapped_column(String(24))
+    model: Mapped[str] = mapped_column(String(160))
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class TestCase(Base):
+    __tablename__ = "ai_test_cases"
+    __table_args__ = (
+        ForeignKeyConstraint(["plan_id", "workspace_id"], ["ai_test_plans.id", "ai_test_plans.workspace_id"],
+                             name="fk_ai_case_plan_workspace", ondelete="CASCADE"),
+        ForeignKeyConstraint(["endpoint_id", "workspace_id"], ["api_endpoints.id", "api_endpoints.workspace_id"],
+                             name="fk_ai_case_endpoint_workspace"),
+        CheckConstraint("category IN ('positive','negative','boundary','security')", name="ck_ai_case_category"),
+        CheckConstraint("priority IN ('P0','P1','P2','P3')", name="ck_ai_case_priority"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    plan_id: Mapped[str] = mapped_column(String(36), index=True)
+    endpoint_id: Mapped[str] = mapped_column(String(36), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    category: Mapped[str] = mapped_column(String(16))
+    priority: Mapped[str] = mapped_column(String(2))
+    description: Mapped[str] = mapped_column(Text)
+    steps: Mapped[list] = mapped_column(JSON)
+    expected_result: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

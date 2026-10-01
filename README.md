@@ -185,7 +185,7 @@ Phase 6-2-C-1-A 建立稳定的 API 测试输入：创建 **API 测试项目**�
 在项目详情点击 **API 测试**，上传 `.json`、`.yaml` 或 `.yml` 文档。
 成功后显示 **解析完成**、接口数量以及 method / path / summary / 参数与请求响应结构。
 支持 OpenAPI 3.0 / 3.1 / 3.2 和 Swagger 2.0；使用 Prance、openapi-spec-validator 与 SchemaPath，
-不调用模型或目标接口。**生成测试计划**按钮暂时禁用，Test Planning 是后续阶段。
+导入本身不调用模型或目标接口。Phase 6-2-C-1-B 已开放 **生成测试计划**，使用工作区 BYOK 模型。
 
 上传文件上限为 1,000,000 bytes（1 MB），仅接受 UTF-8。文档与接口全部绑定当前 Workspace；
 数据库复合外键保证 Project / ApiSpec / ApiEndpoint 归属一致。原始内容只保存到数据库，
@@ -201,9 +201,62 @@ Phase 6-2-C-1-A 建立稳定的 API 测试输入：创建 **API 测试项目**�
 | `DELETE /api/projects/{project_id}/api-specs/{id}` | 删除规范及关联接口 |
 
 Alembic 新增 `0006_api_import`，不修改历史 migration。可用 `python -m alembic upgrade head` 升级；
-新 API 只注册到 Production。现有 Demo 与较早契约 / 执行流程继续保留，新导入数据尚未连接 AI、执行或报告。
+新 API 只注册到 Production。现有 Demo 与较早契约 / 执行流程继续保留，新导入数据已连接 AI Planner；执行与报告尚未接入。
 新增测试位于 `tests/test_api_import.py`、`tests/test_api_import_compat.py`、`tests/test_api_import_browser.py`。
 运行结果与限制见 [Phase 6-2-C-1-A 报告](docs/phase6-2c-1a.md)。
+
+## AI Test Planner Architecture
+
+```text
+OpenAPI
+   ↓
+Endpoint（ApiEndpoint + 文档中的本地 schema / security 定义）
+   ↓
+LLM Planner（TestPlannerAgent → ProviderGateway → 用户的 BYOK Provider）
+   ↓
+Pydantic Schema + 接口归属 + 四类覆盖校验
+   ↓
+TestPlan + TestCase（事务保存）
+```
+
+在 API 测试页面选择接口文档，配置并启用模型后点击 **生成测试计划**。页面显示生成状态、
+测试数量、正常 / 异常 / 边界 / 安全分类统计；详情页展示优先级、说明、中文步骤和预期结果，刷新后仍可查看。
+该流程只规划，描述性 steps 不会交给 HTTP 或浏览器执行器。
+
+`TestPlannerAgent` 不直接实例化 OpenAI / DeepSeek；所有模型请求必须通过现有 Provider Gateway。
+Gateway 使用工作区或当前会话的加密配置，不回退到环境凭据或 MockProvider，返回前去除密钥回显。
+Prompt 要求仅返回 JSON，文档内容按不可信数据处理，凭据使用占位符，未定义的约束要注明假设。
+`PlannerOutput` / `PlannedCase` 禁止额外字段，校验字符串长度、步骤、四类 category 和 P0–P3 priority；
+每个接口必须有四类案例，接口 ID 必须属于该批次，禁止同接口重名。
+
+新增 `TestPlan` / `TestCase` 采用独立的 `ai_test_plans` / `ai_test_cases` 表，避免与 Demo 的历史同名业务模型冲突。
+计划保存 `workspace_id / project_id / api_spec_id / provider / model / created_by` 和时间戳，状态支持
+`draft / generating / ready / failed / approved`；本阶段生成流程只使用 `generating → ready / failed`。
+Case 保存接口关联、名称、分类、优先级、说明、JSON steps、预期结果和创建时间。
+复合外键约束计划文档归属和 Case 工作区；Agent 进一步验证 Case 只能引用计划所选文档的接口。
+增量迁移 `0007_test_planner` 已包含在 wheel 数据文件中，可执行 `python -m alembic upgrade head`。
+
+| API | 行为 |
+| --- | --- |
+| `POST /api/projects/{project_id}/test-plans/generate` | 同步生成并返回 201；可传 `{"api_spec_id":"…"}`，省略时使用最新文档 |
+| `GET /api/projects/{project_id}/test-plans` | 当前项目的计划、状态、数量及分类统计 |
+| `GET /api/test-plans/{id}` | 当前工作区内的计划与分类统计 |
+| `GET /api/test-plans/{id}/cases` | 当前工作区内的结构化用例 |
+
+无模型 / 无文档返回中文 422；跨工作区或归档项目返回 404。模型超时、JSON 非法、Schema / 覆盖失败、
+保存异常返回固定中文 502，`detail.message` 为友好提示，`detail.plan_id` 可用于查看失败计划。
+先持久化 `generating`，所有批次全部校验后才一次保存 Case 和 `ready`；失败计划不包含部分案例。
+取消请求或服务重启后将中断的 `generating` 标记为 `failed`。不记录原始 LLM 输出或异常信息。
+已关联计划的文档删除返回中文 409，保留计划依赖的文档和接口。
+
+当前限制：每份文档最多规划 20 个接口，每批 2 个，最多 12 个案例 / 接口，单批上下文最大 200 KB，
+整份计划生成超时 120 秒。重新生成会创建新计划；没有队列、断点续生成或自动重试。
+服务按当前单进程部署方式恢复生成状态，多 worker 的持久化任务租约是后续工作。
+`approved` 保留为数据状态，本阶段未增加审批 API；未新增 API 执行、Playwright 执行或测试报告。
+
+专项验证：`pytest tests/test_test_planner.py tests/test_test_planner_compat.py tests/test_test_planner_browser.py -q`。
+CI 全部使用 Mock HTTP Transport 和假密钥，SQLite / MySQL 执行相同迁移与持久化契约，真实 Chromium 检查
+生成态、详情、刷新、移动端和内容转义。没有真实模型调用。结果见 [Phase 6-2-C-1-B 报告](docs/phase6-2c-1b.md)。
 
 ## Verification
 

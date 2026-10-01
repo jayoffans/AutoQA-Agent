@@ -9,6 +9,8 @@ let authMode = 'login', currentView = 'dashboard', pollBusy = false;
 let refreshing = null, identityVersion = 0;
 let onboarding = null, providerConfigs = [];
 let apiModeProject = '', apiNotice = null;
+let plannerDetailId = '', plannerSpecId = '';
+const planningProjects = new Set();
 const views = ['dashboard','projects','tasks','workflow','findings','reports','model'];
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => $('toast').hidden = true, 5000); }
 async function api(path, method = 'GET', body) {
@@ -29,7 +31,7 @@ async function api(path, method = 'GET', body) {
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     if (response.status === 401 && me && version === identityVersion) { resetIdentity(); shell(); }
-    throw Error(error.detail || t('requestFailed'));
+    throw Error(error.detail?.message || error.detail || t('requestFailed'));
   }
   if (version !== identityVersion) throw Error(t('requestFailed'));
   return response.status === 204 ? null : response.json();
@@ -38,6 +40,7 @@ function resetIdentity() {
   identityVersion++; me=null; workspace=''; csrf=''; projects=[]; tasks=[]; stats={}; model={};
   onboarding=null; providerConfigs=[];
   apiModeProject=''; apiNotice=null;
+  plannerDetailId=''; plannerSpecId='';
   selectedTask=''; selectedProject=''; detail=null; currentView='dashboard'; authMode='login';
   clearPasswords(); $('dialog').close(); $('dialog').innerHTML='';
 }
@@ -68,7 +71,9 @@ function shell() {
 function needsOnboarding() { return !!onboarding && !onboarding.onboarding_completed; }
 function routeView() {
   const requested = location.hash.slice(1), modelPage = ['model','settings/providers'].includes(requested);
-  const apiPage = requested.match(/^projects\/([A-Za-z0-9-]+)\/api-testing$/);
+  const planPage = requested.match(/^projects\/([A-Za-z0-9-]+)\/test-plans\/([A-Za-z0-9-]+)$/);
+  const apiPage = requested.match(/^projects\/([A-Za-z0-9-]+)\/api-testing$/) || planPage;
+  plannerDetailId = planPage?.[2] || '';
   apiModeProject = apiPage?.[1] || '';
   if (apiPage) selectedProject = apiPage[1];
   currentView = needsOnboarding() && !(onboarding.step===2 && modelPage) ? 'onboarding' : modelPage ? 'model' : apiPage ? 'projects' : views.includes(requested) ? requested : 'dashboard';
@@ -110,9 +115,9 @@ function render() {
   if (me && needsOnboarding() && currentView !== 'model') { renderOnboarding(); return; }
   if (!me || !$('content')) return;
   document.querySelectorAll('.nav-item').forEach(a=>a.classList.toggle('active', a.hash===(currentView==='model'?'#settings/providers':'#'+currentView)));
-  $('page-title').textContent = t(apiModeProject?'apiTesting':currentView);
+  $('page-title').textContent = t(plannerDetailId?'plannerDetail':apiModeProject?'apiTesting':currentView);
   const owner = me.workspaces.find(w=>w.id===workspace)?.role === 'owner';
-  let content = `<div class="page-heading"><div><h1>${text(apiModeProject?'apiTesting':currentView)}</h1><p>${text(apiModeProject?'apiSpecHint':'productNote')}</p></div>${apiModeProject?'':currentView==='model'?(owner?button('addModel','add-model','','primary'):''):button(currentView==='projects'?'newProject':'newTask',currentView==='projects'?'new-project':'new-task','','primary')}</div>`;
+  let content = `<div class="page-heading"><div><h1>${text(plannerDetailId?'plannerDetail':apiModeProject?'apiTesting':currentView)}</h1><p>${text(plannerDetailId?'plannerDetailHint':apiModeProject?'apiSpecHint':'productNote')}</p></div>${apiModeProject?'':currentView==='model'?(owner?button('addModel','add-model','','primary'):''):button(currentView==='projects'?'newProject':'newTask',currentView==='projects'?'new-project':'new-task','','primary')}</div>`;
   if (!model.configured && currentView !== 'model' && !apiModeProject) content += `<div class="product-notice">${text('modelMissing')} ${button('goModel','model')}</div>`;
   if (currentView === 'dashboard') {
     if (model.configured) content += `<div class="product-notice model-state" role="status">${text(providerConfigs.find(p=>p.is_active)?.status==='connected'?'modelConnected':'modelConfigured')} ${esc(model.model)} ${button('model','model')}</div>`;
@@ -191,6 +196,7 @@ async function refresh() {
 async function projectDetail(id) {
   const project = projects.find(p=>p.id===id);
   if (!project || !$('project-detail')) return;
+  if (plannerDetailId && apiModeProject===id) { await plannerDetail(plannerDetailId,id); return; }
   if (apiModeProject===id && project.project_type==='api') { await apiTesting(id); return; }
   const [env,endpoints,history] = await Promise.all([api(`/api/projects/${id}/environment`),api(`/api/projects/${id}/endpoints`),api(`/api/projects/${id}/runs`)]);
   $('project-detail').innerHTML = `<section class="panel product-panel"><h2>${esc(project.name)}</h2><div class="button-row">${button('edit','edit-project',id)}${button('archive','archive-project',id)}${project.project_type==='api'?button('apiTesting','api-testing',id,'primary'):''}</div><h3>${text('history')}</h3>${history.length?table(history,false):`<p>${text('noHistory')}</p>`}</section>
@@ -200,14 +206,43 @@ async function projectDetail(id) {
 }
 async function apiTesting(id) {
   const version=identityVersion;
-  const [specs,endpoints]=await Promise.all([api(`/api/projects/${id}/api-specs`),api(`/api/projects/${id}/api-endpoints`)]);
-  if (version!==identityVersion || selectedProject!==id || apiModeProject!==id || !$('project-detail')) return;
+  const [specs,endpoints,plans]=await Promise.all([api(`/api/projects/${id}/api-specs`),api(`/api/projects/${id}/api-endpoints`),api(`/api/projects/${id}/test-plans`)]);
+  if (version!==identityVersion || selectedProject!==id || apiModeProject!==id || plannerDetailId || !$('project-detail')) return;
+  if (!specs.some(s=>s.id===plannerSpecId)) plannerSpecId=specs.at(-1)?.id || '';
+  const busy=planningProjects.has(workspace+':'+id);
   $('project-detail').innerHTML=`<section class="panel product-panel"><div class="progress-heading"><h2>${esc(projects.find(p=>p.id===id)?.name)}</h2>${button('backProject','back-project',id)}</div>
     <form id="api-spec-upload-form" data-project-id="${esc(id)}"><label>${text('apiChooseFile')}<input name="file" type="file" accept=".json,.yaml,.yml" required></label><p>${text('apiSpecHint')}</p><button class="primary" type="submit">${text('uploadApiSpec')}</button></form>
     ${apiNotice?.project_id===id?`<p class="api-import-success" role="status">${text('apiParsed')} · ${text('endpointCount')}: ${esc(apiNotice.count)}</p>`:''}
-    <div class="progress-heading"><h3>${text('endpointCount')}: ${endpoints.length}</h3><button type="button" class="secondary" disabled title="${text('apiPlanningPending')}">${text('generatePlan')}</button></div><p>${text('apiPlanningPending')}</p></section>
+    <div class="progress-heading"><h3>${text('endpointCount')}: ${endpoints.length}</h3><button type="button" class="primary" data-action="generate-api-plan" data-id="${esc(id)}" ${!specs.length||!model.configured||busy?'disabled':''}>${text(busy?'plannerGenerating':'generatePlan')}</button></div>
+    ${specs.length?`<label>${text('plannerSpec')}<select id="planner-spec">${specs.map(s=>`<option value="${esc(s.id)}" ${s.id===plannerSpecId?'selected':''}>${esc(s.name)} · ${esc(s.version)}</option>`).join('')}</select></label>`:''}
+    <p class="planner-notice" role="status">${text(busy?'plannerGenerating':!model.configured?'plannerMissingModel':'plannerHint')}</p>${!model.configured?button('goModel','model'):''}</section>
+    <section class="panel product-panel"><h2>${text('plannerPlans')}</h2>${plans.length?`<div class="planner-list">${plans.map(p=>`<article class="planner-card" data-plan-id="${esc(p.id)}"><div class="progress-heading"><h3>${date(p.created_at)}</h3><span class="badge ${esc(p.status)}">${text('plannerStatus_'+p.status)}</span></div><p>${esc(p.provider)} · ${esc(p.model)} · ${text('plannerCaseCount')}: ${p.case_count}</p>${plannerCounts(p.category_counts)}${p.status==='failed'?`<p>${text('plannerFailed')}</p>`:''}${button('view','view-api-plan',p.id)}</article>`).join('')}</div>`:`<p>${text('plannerEmpty')}</p>`}</section>
     <section class="panel product-panel"><h2>${text('apiDocuments')}</h2>${specs.length?`<ul class="api-spec-list">${specs.map(s=>`<li data-spec-id="${esc(s.id)}"><span><strong>${esc(s.name)}</strong> · ${esc(s.version)} · ${esc(s.format.toUpperCase())} · ${text('endpointCount')}: ${s.endpoint_count}</span>${button('delete','delete-api-spec',s.id)}</li>`).join('')}</ul>`:`<p>${text('apiNoDocuments')}</p>`}</section>
     <section class="panel product-panel"><h2>${text('endpoints')}</h2>${endpoints.length?`<div class="api-endpoint-table"><table class="product-table"><thead><tr><th>${text('apiMethod')}</th><th>${text('apiPath')}</th><th>${text('apiSummary')}</th><th>${text('apiParameters')}</th></tr></thead><tbody>${endpoints.map(e=>`<tr><td><strong>${esc(e.method)}</strong></td><td class="mono">${esc(e.path)}</td><td>${esc(e.summary)}</td><td><details><summary>${text('apiParameters')} (${e.parameters.length})</summary><pre>${json(e.parameters)}</pre><h4>${text('apiRequestSchema')}</h4><pre>${json(e.request_schema)}</pre><h4>${text('apiResponseSchema')}</h4><pre>${json(e.response_schema)}</pre></details></td></tr>`).join('')}</tbody></table></div>`:`<p>${text('noEndpoints')}</p>`}</section>`;
+}
+function plannerCounts(counts) {
+  return `<div class="planner-counts">${['positive','negative','boundary','security'].map(key=>`<span>${text('plannerCategory_'+key)} <strong>${esc(counts[key] || 0)}</strong></span>`).join('')}</div>`;
+}
+async function plannerDetail(planId,projectId) {
+  const version=identityVersion;
+  const [plan,cases,endpoints]=await Promise.all([api(`/api/test-plans/${planId}`),api(`/api/test-plans/${planId}/cases`),api(`/api/projects/${projectId}/api-endpoints`)]);
+  if(version!==identityVersion || plannerDetailId!==planId || !$('project-detail')) return;
+  if(plan.project_id!==projectId) throw Error(t('requestFailed'));
+  $('project-detail').innerHTML=`<section class="panel product-panel"><div class="progress-heading"><h2>${text('plannerDetail')}</h2>${button('plannerBack','api-testing',projectId)}</div><p><span class="badge ${esc(plan.status)}">${text('plannerStatus_'+plan.status)}</span> · ${esc(plan.provider)} · ${esc(plan.model)}</p><p>${text('plannerCaseCount')}: ${plan.case_count} · ${date(plan.created_at)}</p>${plannerCounts(plan.category_counts)}<p>${text(plan.status==='failed'?'plannerFailed':'plannerHint')}</p></section>
+    <div class="planner-cases">${cases.map(c=>{const e=endpoints.find(e=>e.id===c.endpoint_id);return `<article class="panel product-panel planner-case"><div class="progress-heading"><h2>${esc(c.name)}</h2><span class="badge">${esc(c.priority)}</span></div><p class="mono">${esc(e?.method)} ${esc(e?.path)}</p><span class="badge">${text('plannerCategory_'+c.category)}</span><p>${esc(c.description)}</p><h3>${text('plannerSteps')}</h3><ol>${c.steps.map(step=>`<li>${esc(step)}</li>`).join('')}</ol><h3>${text('plannerExpected')}</h3><p>${esc(c.expected_result)}</p></article>`;}).join('')}</div>`;
+}
+async function generateApiPlan(projectId) {
+  const version=identityVersion, key=workspace+':'+projectId, specId=$('planner-spec')?.value;
+  if(planningProjects.has(key)) return;
+  planningProjects.add(key);
+  try {
+    await apiTesting(projectId);
+    const plan=await api(`/api/projects/${projectId}/test-plans/generate`,'POST',{api_spec_id:specId});
+    if(version===identityVersion && apiModeProject===projectId && !plannerDetailId) location.hash=`projects/${projectId}/test-plans/${plan.id}`;
+  } finally {
+    planningProjects.delete(key);
+    if(version===identityVersion && apiModeProject===projectId && !plannerDetailId) await apiTesting(projectId);
+  }
 }
 function projectDialog(id = '') {
   const p = projects.find(p=>p.id===id) || {};
@@ -292,6 +327,8 @@ document.addEventListener('click', async event=>{
     else if (action==='add-model') modelDialog();
     else if (action==='project') { selectedProject=id; currentView='projects'; location.hash='projects'; render(); await projectDetail(id); }
     else if (action==='api-testing') { location.hash=`projects/${id}/api-testing`; }
+    else if (action==='generate-api-plan') await generateApiPlan(id);
+    else if (action==='view-api-plan') { location.hash=`projects/${selectedProject}/test-plans/${id}`; }
     else if (action==='back-project') { selectedProject=id; location.hash='projects'; }
     else if (action==='delete-api-spec' && confirm(t('confirmDeleteApiSpec'))) { const projectId=selectedProject;
       await api(`/api/projects/${projectId}/api-specs/${encodeURIComponent(id)}`,'DELETE'); apiNotice=null; await apiTesting(projectId); toast(t('deleted')); }
@@ -324,8 +361,9 @@ document.addEventListener('click', async event=>{
 document.addEventListener('change', async event=>{
   try {
     if (event.target.id==='language') { await loadLocale(event.target.value); shell(); if (currentView==='projects' && selectedProject) await projectDetail(selectedProject); }
-    else if (event.target.id==='workspace-selector') { identityVersion++; workspace=event.target.value; selectedProject=''; selectedTask=''; detail=null; projects=[]; tasks=[]; stats={}; model={}; providerConfigs=[]; apiModeProject=''; apiNotice=null; if(location.hash.includes('/api-testing')) history.replaceState(null,'','#projects'); clearPasswords(); $('dialog').close(); $('dialog').innerHTML=''; render(); await refresh(); }
+    else if (event.target.id==='workspace-selector') { identityVersion++; workspace=event.target.value; selectedProject=''; selectedTask=''; detail=null; projects=[]; tasks=[]; stats={}; model={}; providerConfigs=[]; apiModeProject=''; apiNotice=null; plannerDetailId=''; plannerSpecId=''; if(location.hash.includes('/api-testing') || location.hash.includes('/test-plans/')) history.replaceState(null,'','#projects'); clearPasswords(); $('dialog').close(); $('dialog').innerHTML=''; render(); await refresh(); }
     else if (event.target.id==='task-project') await taskEndpoints(event.target.value);
+    else if (event.target.id==='planner-spec') plannerSpecId=event.target.value;
     else if (event.target.name==='project_type' && event.target.form?.id==='project-form') { event.target.form.elements.url.required=event.target.value==='web'; }
     else if (event.target.id==='provider-select') { const form=$('model-form'),provider=event.target.value; form.elements.base_url.value=provider==='deepseek'?'https://api.deepseek.com':provider==='openai'?'https://api.openai.com/v1':''; form.elements.model.value=provider==='deepseek'?'deepseek-chat':''; }
     else if (event.target.id==='openapi-file') { const file=event.target.files[0]; if (!file) return; if(file.size>1000000) throw Error(t('requestFailed')); await api(`/api/projects/${selectedProject}/openapi`,'POST',{content:await file.text()}); await projectDetail(selectedProject); toast(t('saved')); }

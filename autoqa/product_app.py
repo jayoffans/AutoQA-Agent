@@ -37,6 +37,7 @@ from .product_models import (
     MemberRow,
     OnboardingRow,
     SessionRow,
+    TestPlan,
     UserRow,
     WorkspaceRow,
 )
@@ -63,6 +64,7 @@ from .store import Store, TaskRow
 from .store_base import now
 from .studio_models import CaseRow, FindingRow, ProjectRow, RunRow, TaskMetadataRow
 from .target_network import PublicPolicy, fetch_limited, resolve_target
+from .test_plan_api import router as test_plan_router
 
 ROOT = Path(__file__).parent
 
@@ -77,6 +79,10 @@ def create_product_app(settings):
         settings.artifact_dir.mkdir(parents=True, exist_ok=True)
         store = Store(settings.database_url, settings.artifact_dir, mode="production")
         store.recover()
+        with Session(store.engine) as session:
+            session.execute(update(TestPlan).where(TestPlan.status == "generating")
+                            .values(status="failed", updated_at=now()))
+            session.commit()
         app.state.store = store
         app.state.gateway = ProviderGateway(store.engine, box, settings)
         app.state.runner = ProductRunner(settings, store, app.state.gateway, SQLCheckpointSaver(store.engine), box)
@@ -90,6 +96,7 @@ def create_product_app(settings):
     app = FastAPI(title="AutoQA Studio", version="2.0.0", lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url=None)
     app.include_router(api_import_router)
+    app.include_router(test_plan_router)
     attempts = defaultdict(deque)
     task_locks = WeakValueDictionary()
 

@@ -28,7 +28,7 @@ def test_browser_upload_json_reload_delete_without_model(auth_browser, web_produ
     _, _, _, _, calls = web_product
     open_import(page, url)
     expect(page.get_by_role("button", name="生成测试计划", exact=True)).to_be_disabled()
-    assert not page.get_by_role("button", name="配置模型", exact=True).count()
+    expect(page.get_by_role("button", name="配置模型", exact=True)).to_be_visible()
     page.locator('#api-spec-upload-form input').set_input_files({
         "name": "openapi.json", "mimeType": "application/json", "buffer": json.dumps(SPEC).encode()})
     page.locator('#api-spec-upload-form').get_by_role("button", name="上传接口文档", exact=True).click()
