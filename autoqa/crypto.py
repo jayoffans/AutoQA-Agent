@@ -10,7 +10,10 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 class SecretBox:
     def __init__(self, master_key):
-        self.cipher = AESGCM(base64.urlsafe_b64decode(master_key))
+        decoded = base64.urlsafe_b64decode(master_key)
+        if len(decoded) != 32:
+            raise ValueError("SecretBox requires a 256-bit master key")
+        self.cipher = AESGCM(decoded)
 
     def encrypt(self, value, scope):
         nonce = secrets.token_bytes(12)

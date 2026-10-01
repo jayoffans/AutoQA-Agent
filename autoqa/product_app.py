@@ -35,7 +35,6 @@ from .product_models import (
     EnvironmentRow,
     MemberRow,
     OnboardingRow,
-    ProviderConfigRow,
     SessionRow,
     UserRow,
     WorkspaceRow,
@@ -50,6 +49,7 @@ from .product_schemas import (
     OnboardingAction,
     OnboardingProject,
     ProductProject,
+    ProviderCreate,
     RealTask,
     RefreshToken,
     Registration,
@@ -426,9 +426,69 @@ def create_product_app(settings):
         return app.state.gateway.public_config(request.state.workspace_id, request.state.session_hash)
 
     def model_target(data):
-        target(data.base_url)
-        if not settings.allow_private_targets and not data.base_url.startswith("https://"):
-            raise HTTPException(422, "模型服务必须使用 HTTPS")
+        try:
+            resolve_target(data.base_url, settings.allow_private_targets)
+            if urlsplit_query(data.base_url) or any(char.isspace() for char in data.base_url):
+                raise ValueError
+            if not settings.allow_private_targets and not data.base_url.startswith("https://"):
+                raise ValueError
+        except ValueError:
+            raise HTTPException(422, "服务地址无效，请使用可访问的 HTTPS 地址，不含账号、查询参数或片段") from None
+
+    @app.get("/api/settings/providers")
+    def list_providers(request: Request):
+        return app.state.gateway.list_configs(request.state.workspace_id, request.state.session_hash)
+
+    @app.post("/api/settings/providers", dependencies=[Depends(owner)], status_code=201)
+    def create_provider(data: ProviderCreate, request: Request):
+        data.base_url = data.base_url or {"deepseek": "https://api.deepseek.com",
+            "openai": "https://api.openai.com/v1"}.get(data.provider, "")
+        model_target(data)
+        return app.state.gateway.create(request.state.workspace_id, request.state.session_hash, data,
+                                      request.state.user_id)
+
+    @app.delete("/api/settings/providers/{config_id}", dependencies=[Depends(owner)], status_code=204)
+    def remove_provider(config_id: str, request: Request):
+        if config_id == "session":
+            if not app.state.gateway.session_configs.pop((request.state.session_hash, request.state.workspace_id), None):
+                raise HTTPException(404, "模型配置不存在")
+            with Session(app.state.store.engine) as session:
+                app.state.gateway.mark_onboarding(session, request.state.workspace_id, request.state.user_id,
+                    app.state.gateway.public_config(request.state.workspace_id, request.state.session_hash)["configured"])
+                session.commit()
+        else:
+            try:
+                app.state.gateway.remove(request.state.workspace_id, config_id)
+            except ProviderError:
+                raise HTTPException(404, "模型配置不存在") from None
+        return Response(status_code=204)
+
+    @app.post("/api/settings/providers/{config_id}/activate", dependencies=[Depends(owner)])
+    def activate_provider(config_id: str, request: Request):
+        try:
+            result = app.state.gateway.activate(request.state.workspace_id, config_id)
+        except ProviderError:
+            raise HTTPException(404, "模型配置不存在") from None
+        app.state.gateway.session_configs.pop((request.state.session_hash, request.state.workspace_id), None)
+        return result
+
+    @app.post("/api/settings/providers/{config_id}/test", dependencies=[Depends(owner)])
+    async def test_saved_provider(config_id: str, request: Request):
+        if config_id == "session":
+            if (request.state.session_hash, request.state.workspace_id) not in app.state.gateway.session_configs:
+                raise HTTPException(404, "模型配置不存在")
+        else:
+            with Session(app.state.store.engine) as session:
+                try:
+                    row = app.state.gateway.owned_row(session, request.state.workspace_id, config_id)
+                except ProviderError:
+                    raise HTTPException(404, "模型配置不存在") from None
+                model_target(row)
+        try:
+            return await app.state.gateway.test_connection(request.state.workspace_id, request.state.session_hash,
+                                                           config_id=config_id)
+        except ProviderError:
+            raise HTTPException(502, "连接失败，请检查服务地址、密钥、模型和余额") from None
 
     @app.put("/api/provider", dependencies=[Depends(owner)])
     def save_provider(data: ModelConfig, request: Request):
@@ -446,8 +506,8 @@ def create_product_app(settings):
         config = {"provider": data.provider, "model": data.model, "base_url": data.base_url,
                   "encrypted_api_key": box.encrypt(data.api_key, app.state.gateway.scope(request.state.workspace_id))}
         try:
-            await app.state.gateway.generate(request.state.workspace_id, request.state.session_hash,
-                "Connection test. Return {\"ok\": true} as JSON.", {}, {"type": "object"}, override=config)
+            await app.state.gateway.test_connection(request.state.workspace_id, request.state.session_hash,
+                                                   override=config)
         except (ProviderError, ValueError):
             raise HTTPException(502, "连接失败，请检查服务地址、密钥、模型和余额") from None
         return {"ok": True}
@@ -456,11 +516,7 @@ def create_product_app(settings):
     def delete_provider(request: Request, save_mode: str = Query("workspace", pattern="^(workspace|session)$")):
         app.state.gateway.session_configs.pop((request.state.session_hash, request.state.workspace_id), None)
         if save_mode == "workspace":
-            with Session(app.state.store.engine) as session:
-                row = session.get(ProviderConfigRow, request.state.workspace_id)
-                if row:
-                    session.delete(row)
-                    session.commit()
+            app.state.gateway.remove_all(request.state.workspace_id)
         return Response(status_code=204)
 
     @app.get("/api/projects")

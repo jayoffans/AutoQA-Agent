@@ -1,0 +1,84 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testsuites name="pytest tests">
+  <testsuite name="pytest" errors="0" failures="0" skipped="2" tests="75" time="66.479" timestamp="2026-10-01T20:07:22.686752+08:00">
+    <testcase classname="tests.test_provider_center" name="test_provider_key_encrypted" time="0.663" />
+    <testcase classname="tests.test_provider_center" name="test_provider_api_not_return_plain_key" time="0.636" />
+    <testcase classname="tests.test_provider_center" name="test_provider_key_mask[sk-fixture-1234-sk-********1234]" time="0.582" />
+    <testcase classname="tests.test_provider_center" name="test_provider_key_mask[12345678-sk-************]" time="0.699" />
+    <testcase classname="tests.test_provider_center" name="test_provider_key_mask[opaque-fixture-token-abcd-sk-********abcd]" time="0.601" />
+    <testcase classname="tests.test_provider_center" name="test_workspace_provider_isolation" time="0.811" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes0]" time="0.596" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes1]" time="0.628" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes2]" time="0.706" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes3]" time="0.602" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes4]" time="0.714" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes5]" time="0.579" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes6]" time="0.593" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes7]" time="0.596" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes8]" time="0.727" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes9]" time="0.598" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes10]" time="0.590" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes11]" time="0.582" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes12]" time="0.584" />
+    <testcase classname="tests.test_provider_center" name="test_provider_address_rejected_without_secret_echo[]" time="0.758" />
+    <testcase classname="tests.test_provider_center" name="test_provider_address_rejected_without_secret_echo[http://model.example/v1]" time="0.562" />
+    <testcase classname="tests.test_provider_center" name="test_provider_address_rejected_without_secret_echo[http://127.0.0.1]" time="0.572" />
+    <testcase classname="tests.test_provider_center" name="test_provider_address_rejected_without_secret_echo[file:///secret]" time="0.790" />
+    <testcase classname="tests.test_provider_center" name="test_provider_address_rejected_without_secret_echo[https://user:password@model.example/v1]" time="0.568" />
+    <testcase classname="tests.test_provider_center" name="test_provider_address_rejected_without_secret_echo[https://model.example/v1?key=fixture]" time="0.578" />
+    <testcase classname="tests.test_provider_center" name="test_provider_address_rejected_without_secret_echo[https://model.example/v1#fragment]" time="0.579" />
+    <testcase classname="tests.test_provider_center" name="test_provider_address_rejected_without_secret_echo[https://169.254.169.254]" time="0.581" />
+    <testcase classname="tests.test_provider_center" name="test_provider_address_rejected_without_secret_echo[https://model.example:22]" time="0.559" />
+    <testcase classname="tests.test_provider_center" name="test_connection_failure_safe_response[401]" time="0.763" />
+    <testcase classname="tests.test_provider_center" name="test_connection_failure_safe_response[403]" time="0.608" />
+    <testcase classname="tests.test_provider_center" name="test_connection_failure_safe_response[404]" time="0.589" />
+    <testcase classname="tests.test_provider_center" name="test_connection_failure_safe_response[429]" time="0.846" />
+    <testcase classname="tests.test_provider_center" name="test_connection_failure_safe_response[500]" time="0.619" />
+    <testcase classname="tests.test_provider_center" name="test_connection_failure_safe_response[302]" time="0.600" />
+    <testcase classname="tests.test_provider_center" name="test_connection_exception_is_safe[ConnectError]" time="0.612" />
+    <testcase classname="tests.test_provider_center" name="test_connection_exception_is_safe[ReadTimeout]" time="0.607" />
+    <testcase classname="tests.test_provider_center" name="test_connection_exception_is_safe[RuntimeError]" time="0.701" />
+    <testcase classname="tests.test_provider_center" name="test_connection_minimal_request_uses_workspace_key[deepseek]" time="0.626" />
+    <testcase classname="tests.test_provider_center" name="test_connection_minimal_request_uses_workspace_key[openai]" time="0.652" />
+    <testcase classname="tests.test_provider_center" name="test_connection_minimal_request_uses_workspace_key[compatible]" time="0.636" />
+    <testcase classname="tests.test_provider_center" name="test_connection_invalid_response_is_safe[body0]" time="0.614" />
+    <testcase classname="tests.test_provider_center" name="test_connection_invalid_response_is_safe[body1]" time="0.896" />
+    <testcase classname="tests.test_provider_center" name="test_connection_invalid_response_is_safe[body2]" time="0.585" />
+    <testcase classname="tests.test_provider_center" name="test_connection_response_size_is_limited" time="0.597" />
+    <testcase classname="tests.test_provider_center" name="test_connection_total_deadline_returns_safe_error" time="0.656" />
+    <testcase classname="tests.test_provider_center" name="test_legacy_provider_api_rejects_keys_in_public_metadata[/api/provider]" time="0.574" />
+    <testcase classname="tests.test_provider_center" name="test_legacy_provider_api_rejects_keys_in_public_metadata[/api/provider/test]" time="0.568" />
+    <testcase classname="tests.test_provider_center" name="test_provider_defaults[deepseek-https://api.deepseek.com]" time="0.589" />
+    <testcase classname="tests.test_provider_center" name="test_provider_defaults[openai-https://api.openai.com/v1]" time="0.585" />
+    <testcase classname="tests.test_provider_center" name="test_multiple_configs_one_active_and_gateway_selection" time="0.636" />
+    <testcase classname="tests.test_provider_center" name="test_database_rejects_two_active_providers" time="0.621" />
+    <testcase classname="tests.test_provider_center" name="test_database_rejects_active_flag_without_workspace_slot" time="0.593" />
+    <testcase classname="tests.test_provider_center" name="test_concurrent_provider_creates_preserve_all_and_single_active" time="0.844" />
+    <testcase classname="tests.test_provider_center" name="test_delete_active_promotes_remaining_and_last_clears_milestone" time="0.643" />
+    <testcase classname="tests.test_provider_center" name="test_delete_inactive_preserves_default" time="0.640" />
+    <testcase classname="tests.test_provider_center" name="test_provider_onboarding_milestone_and_next_step" time="0.981" />
+    <testcase classname="tests.test_provider_center" name="test_session_config_encrypted_isolated_and_not_persisted" time="0.640" />
+    <testcase classname="tests.test_provider_center" name="test_member_reads_masks_but_cannot_mutate_or_spend" time="0.788" />
+    <testcase classname="tests.test_provider_center" name="test_provider_endpoints_require_login_and_cookie_csrf" time="0.596" />
+    <testcase classname="tests.test_provider_center" name="test_unknown_config_test_does_not_call_provider" time="0.593" />
+    <testcase classname="tests.test_provider_center" name="test_provider_envelope_cannot_move_between_records_or_workspaces" time="0.723" />
+    <testcase classname="tests.test_provider_center" name="test_ciphertext_nonce_random_and_master_key_requires_256_bits" time="0.608" />
+    <testcase classname="tests.test_provider_center" name="test_create_failure_rolls_back_default_and_onboarding" time="0.609" />
+    <testcase classname="tests.test_provider_center" name="test_provider_config_and_test_status_survive_restart" time="0.844" />
+    <testcase classname="tests.test_provider_center" name="test_gateway_releases_decrypted_provider_references[False]" time="0.586" />
+    <testcase classname="tests.test_provider_center" name="test_gateway_releases_decrypted_provider_references[True]" time="0.586" />
+    <testcase classname="tests.test_provider_center_compat" name="test_provider_migration_preserves_legacy_ciphertext_and_schema[sqlite]" time="1.945" />
+    <testcase classname="tests.test_provider_center_compat" name="test_provider_migration_preserves_legacy_ciphertext_and_schema[mysql]" time="0.004">
+      <skipped type="pytest.skip" message="Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_provider_center_compat.py:20: Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance</skipped>
+    </testcase>
+    <testcase classname="tests.test_provider_center_compat" name="test_provider_center_database_parity_create_test_switch_and_delete[sqlite]" time="1.635" />
+    <testcase classname="tests.test_provider_center_compat" name="test_provider_center_database_parity_create_test_switch_and_delete[mysql]" time="0.004">
+      <skipped type="pytest.skip" message="Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_provider_center_compat.py:54: Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance</skipped>
+    </testcase>
+    <testcase classname="tests.test_provider_center_browser" name="test_onboarding_model_center_save_advances_without_executing" time="3.066" />
+    <testcase classname="tests.test_provider_center_browser" name="test_model_list_connection_dashboard_default_switch_and_delete" time="4.074" />
+    <testcase classname="tests.test_provider_center_browser" name="test_model_dialog_cancel_and_failure_clear_key" time="3.772" />
+    <testcase classname="tests.test_provider_center_browser" name="test_provider_page_workspace_switch_isolates_and_member_view_readonly" time="3.559" />
+    <testcase classname="tests.test_provider_center_browser" name="test_model_center_mobile_and_no_browser_secret_storage" time="3.068" />
+  </testsuite>
+</testsuites>

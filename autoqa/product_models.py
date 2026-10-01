@@ -2,8 +2,8 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, synonym
 
 from .store_base import Base, now
 
@@ -64,12 +64,24 @@ class OnboardingRow(Base):
 
 class ProviderConfigRow(Base):
     __tablename__ = "provider_configs"
-    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), primary_key=True)
+    __table_args__ = (CheckConstraint(
+        "(is_active = 1 AND active_workspace_id IS NOT NULL AND active_workspace_id = workspace_id) "
+        "OR (is_active = 0 AND active_workspace_id IS NULL)", name="ck_provider_active_workspace"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
     provider: Mapped[str] = mapped_column(String(24))
     base_url: Mapped[str] = mapped_column(String(2000))
-    model: Mapped[str] = mapped_column(String(160))
+    model_name: Mapped[str] = mapped_column(String(160))
     encrypted_api_key: Mapped[str] = mapped_column(Text)
-    key_mask: Mapped[str] = mapped_column(String(40))
+    api_key_hint: Mapped[str] = mapped_column(String(40))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # NULL for inactive rows; portable uniqueness on both MySQL and SQLite.
+    active_workspace_id: Mapped[str | None] = mapped_column(String(36), unique=True)
+    connection_status: Mapped[str] = mapped_column(String(16), default="untested", server_default="untested")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+    model = synonym("model_name")
+    key_mask = synonym("api_key_hint")
 
 
 class EnvironmentRow(Base):

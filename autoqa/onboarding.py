@@ -22,7 +22,8 @@ def progress(session, user_id):
     # The original workspace remains the progress scope when the user switches workspaces.
     if session.get(MemberRow, (row.workspace_id, user_id)) is None:
         raise HTTPException(404, "首次使用工作空间不存在")
-    if not row.model_configured and session.get(ProviderConfigRow, row.workspace_id):
+    if not row.model_configured and session.scalar(select(ProviderConfigRow.id).where(
+            ProviderConfigRow.workspace_id == row.workspace_id, ProviderConfigRow.is_active.is_(True)).limit(1)):
         row.model_configured = True
     if not row.project_created and session.scalar(select(ProjectRow.id).where(
             ProjectRow.workspace_id == row.workspace_id).limit(1)):

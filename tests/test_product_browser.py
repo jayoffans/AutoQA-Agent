@@ -166,8 +166,9 @@ def test_production_ui_empty_onboarding_language_and_model_no_seeds(web_product)
             page.get_by_role("link", name="模型服务", exact=True).click()
             page.get_by_role("heading", name="模型服务", exact=True).wait_for()
             assert "DEEPSEEK_API_KEY" not in page.locator("body").inner_text()
+            page.get_by_role("button", name="添加模型", exact=True).click()
             assert page.locator('[name="api_key"]').get_attribute("type") == "password"
-            assert page.locator('#provider-select option').all_text_contents() == ["DeepSeek", "OpenAI", "OpenAI-compatible"]
+            assert page.locator('#provider-select option').all_text_contents() == ["DeepSeek", "OpenAI", "OpenAI 兼容服务"]
             page.locator('#provider-select').select_option('compatible')
             page.locator('[name="base_url"]').fill(target_url)
             page.locator('[name="model"]').fill('fixture-model')
@@ -176,8 +177,8 @@ def test_production_ui_empty_onboarding_language_and_model_no_seeds(web_product)
             page.wait_for_function("() => document.querySelector('[name=api_key]').value === ''")
             page.locator('[name="api_key"]').fill(KEY)
             page.get_by_role('button', name='保存配置', exact=True).click()
-            page.get_by_text('sk-••••••••1234', exact=True).wait_for()
-            assert page.locator('[name="api_key"]').input_value() == ''
+            page.get_by_text('sk-********1234', exact=True).wait_for()
+            assert page.locator('[name="api_key"]').count() == 0
             page.get_by_role('link', name='项目', exact=True).click()
             page.get_by_role('button', name='创建项目', exact=True).click()
             page.locator('#project-form [name="name"]').fill('浏览器 API 项目')

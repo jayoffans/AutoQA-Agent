@@ -43,15 +43,18 @@ def test_registration_enters_chinese_onboarding_and_blocks_dashboard_deep_link(a
     assert not errors
 
 
-def test_model_entry_is_reserved_and_skip_keeps_unconfigured(auth_browser):
+def test_model_entry_opens_center_and_skip_keeps_unconfigured(auth_browser):
     page, _, url, _, errors = auth_browser
     register_browser(page, url)
     page.get_by_role("button", name="开始设置", exact=True).click()
     page.get_by_role("button", name="配置模型", exact=True).click()
-    expect(page.locator('[role="status"]').filter(has_text="模型配置入口已预留")).to_be_visible()
+    page.get_by_role("heading", name="模型服务", exact=True).wait_for()
+    expect(page).to_have_url(url + "/#settings/providers")
+    expect(page.get_by_role("button", name="添加模型", exact=True)).to_be_visible()
     assert page.locator('[name="api_key"]').count() == 0
     assert not page.request.get(url + "/api/onboarding").json()["model_configured"]
     capture(page, "model.png")
+    page.get_by_role("button", name="返回引导", exact=True).click()
     page.get_by_role("button", name="稍后设置", exact=True).click()
     page.get_by_role("heading", name="创建第一个测试项目", exact=True).wait_for()
     assert not page.request.get(url + "/api/onboarding").json()["model_configured"]

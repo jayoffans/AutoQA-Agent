@@ -1,6 +1,6 @@
 # AutoQA Studio
 
-Phase 6-2-A：新注册用户进入中文四步首次使用引导，老用户继续直接进入工作台。实现范围、数据库变化、测试与截图见 [首次使用引导报告](docs/phase6-2a.md)。
+Phase 6-2-B：工作区 BYOK 模型配置中心，支持多个加密配置、单默认模型与最小连接测试。中文首次使用引导直接进入配置中心，保存后继续下一步。本阶段未扩展首次测试、OpenAPI 或 Web 测试流程。验收见 [模型配置中心报告](docs/phase6-2b.md)；已有引导见 [Phase 6-2-A 报告](docs/phase6-2a.md)。
 
 面向真实 Web / API 项目的 AI 软件测试工作区：解析需求、生成计划、人工审核、受控执行、保留证据与报告。
 
@@ -25,7 +25,7 @@ Demo 使用 `AUTOQA_MODE=demo`，MockProvider 生成测试计划，执行内置 
 用户流程：
 
 1. 创建 Web 或 API 项目，设置测试环境及 Base URL。
-2. 在“模型服务”选择 DeepSeek、OpenAI 或 OpenAI-compatible Provider，测试连接并保存用户自己的密钥。
+2. 在“设置 / 模型服务”添加 DeepSeek、OpenAI 或 OpenAI 兼容服务，填写模型名称、服务地址和自己的 API 密钥。保存后可测试连接、设为默认或删除。
 3. API 项目导入 OpenAPI URL / JSON / YAML，或手动配置接口并选择操作；Web 项目输入目标 URL 和自然语言目标。
 4. 检查 AI 计划的测试目标、范围、前置条件、输入和预期结果；修改、增删用例或重新生成。
 5. 人工批准后执行，查看每个用例的预期 / 实际、状态、耗时、证据、问题与历史报告。
@@ -70,17 +70,35 @@ Owner 可配置模型及添加已注册的 Member；本阶段不实现所有权�
 
 ```mermaid
 flowchart TD
-    User[User] --> Workspace[Workspace]
-    Workspace --> Config[Encrypted Provider Config]
+    User[用户] --> Workspace[Workspace 工作区]
+    Workspace --> Config[加密模型配置：多个配置、一个默认模型]
     Config --> Gateway[Provider Gateway]
-    Gateway --> Model[User's Model Account]
+    Gateway --> Model[用户自己的模型账户]
 ```
 
-`AUTOQA_SECRET_KEY` 是随机 32 字节的服务端主密钥。用户模型 Key 用 **AES-256-GCM** 加密后存入 `encrypted_api_key`，随机 nonce 和绑定工作区的 associated data 防止密文交换。页面只收到 `sk-••••••••1234`，无法取回完整 Key。更换 Key 时提交新密钥；删除配置可以清除密文。
+**AutoQA 不提供模型额度。** 所有模型请求（包括测试连接）由用户自己的模型账户计费，Production 不使用开发者环境变量中的 Key，也不回退到 MockProvider。
+
+`AUTOQA_SECRET_KEY` 是随机 32 字节的服务端主密钥。用户输入 API 密钥 → FastAPI → **AES-256-GCM** → 数据库 `encrypted_api_key`；每次加密使用独立的 12 字节 nonce，GCM 自带认证标签。新持久配置的 associated data 同时绑定工作区与配置 ID，防止密文在记录或工作区之间交换。旧配置保持原工作区绑定信封，迁移不解密或重写密文。API 与页面只返回 `sk-********1234`，不返回完整密钥或密文。删除配置清除数据库中的密文；新建配置可更换密钥。
+
+一个工作区可保存多个统一结构的 `ProviderConfig`：`id`、`workspace_id`、`provider`、`model_name`、`base_url`、`encrypted_api_key`、`api_key_hint`、`is_active`、`created_at`、`updated_at`。另有连接状态与内部默认槽位。数据库的唯一默认槽位和 CHECK 约束保证每个工作区最多一个默认模型；写操作按工作区串行化。新增配置自动成为默认，删除默认配置后启用最近添加的备用配置。配置列表、删除、切换和测试都通过当前用户的工作区成员关系及 `workspace_id` 查询；只有 Owner 可以更改配置或发起付费连接测试。
+
+DeepSeek 默认地址为 `https://api.deepseek.com`，推荐填写 `deepseek-chat`；OpenAI 默认地址为 `https://api.openai.com/v1`，模型由用户填写；OpenAI 兼容服务需自定义服务地址与模型名称。地址校验继续使用现有网络策略与连接时 DNS 固定，默认只允许公共 HTTPS，禁用重定向，不将 API 密钥放入 URL。
+
+| API | 行为 |
+| --- | --- |
+| `GET /api/settings/providers` | 当前工作区配置列表，仅返回掩码及状态 |
+| `POST /api/settings/providers` | 接受 provider、model、api_key、base_url；加密保存，新配置设为默认 |
+| `DELETE /api/settings/providers/{id}` | 删除当前工作区配置；删除最后一个后恢复未配置状态 |
+| `POST /api/settings/providers/{id}/test` | Gateway 创建临时 HTTP 客户端，发送一次最小模型请求 |
+| `POST /api/settings/providers/{id}/activate` | 切换工作区默认模型 |
+
+连接测试使用 `/chat/completions`，仅一条消息、`max_tokens=1`，15 秒超时与 64 KiB 响应上限。成功返回 `{"status":"success","model":"deepseek-chat"}`；失败统一返回中文说明，不返回异常堆栈、服务商错误正文或密钥。客户端在请求后关闭，解密密钥仅在请求局部使用。连接状态为待测试 / 成功 / 失败；仅成功探测后工作台显示“✓ 模型已连接”。保存配置更新 `model_configured=true`，在引导第 2 步保存后继续项目创建，不标记第一次测试已完成。
+
+旧 `/api/provider` GET / PUT / DELETE 和 `/api/provider/test` 保持兼容，业务调用继续经 Provider Gateway 选择当前默认模型；现有 Provider 适配器与 Agent 调用逻辑保持不变。
 
 支持两种模型配置保存方式：
 
-- **仅本次会话**：加密配置只存在当前服务进程内存，绑定用户登录会话与工作区，退出 / 过期 / 重启后不可使用。
+- **仅本次使用**：加密配置只存在当前服务进程内存，绑定用户登录会话与工作区，退出 / 过期 / 重启后不可使用。列表标识 `id=session`，可测试或删除。此方式会临时覆盖当前会话的工作区默认模型。
 - **保存到工作区**：数据库保存加密配置，工作区成员共享模型服务，费用计入该工作区配置的 Provider 账号。
 
 密钥解密只在 Provider 请求局部使用，完成后清除对象中的引用；这不是对 Python 内存的物理擦除保证。Provider Gateway 使用用户提供的 Base URL / Model / Key，不配置免费真实模型额度。
@@ -106,6 +124,8 @@ Alembic 替代仅依赖 `create_all` 的建表方式：
 - `0001_legacy`：识别并补齐旧结构，不删除旧行。
 - `0002_product`：users、workspaces、workspace_members、user_sessions、provider_configs、environment_configs、api_contracts、deployment mode marker，以及项目 ownership / 类型 / 环境字段。
 - `0003_auth`：用户 nickname / is_active / updated_at、工作区 owner_id / updated_at、成员 id / created_at、会话 refresh_token_hash / created_at。回填旧成员及 Owner，保留已有密码、工作区名称和项目。历史无成员工作区允许 owner_id=NULL，历史 Demo 项目继续保持未归属；新注册与项目创建必有有效归属。
+- `0004_onboarding`：保存新用户首次使用引导进度，老用户不创建引导记录。
+- `0005_provider_center`：`provider_configs` 从工作区主键改为配置 ID 主键，保留工作区索引；`model` 改为 `model_name`，`key_mask` 改为 `api_key_hint`，增加默认状态、连接状态与时间字段。逐条原样复制旧密文，旧配置 ID 使用原 workspace_id，保持解密兼容。默认槽位唯一约束在 SQLite / MySQL 均适用。
 
 旧项目保持 `workspace_id=NULL`，不会自动分配给新用户。数据库模式标记阻止 Demo / Production 复用数据库；正式模式拒绝接管旧 Demo 业务库。迁移前备份；没有自动破坏性 downgrade。
 
@@ -167,6 +187,8 @@ node --check autoqa/static/i18n.js
 ```
 
 保留旧浏览器、Demo、报告、代理限额与数据库测试。新增空 Production、用户 / 工作区 / 对象隔离、BYOK、加密、掩码、无回退、OpenAPI、环境秘密、Alembic 和真实 Chromium 验收。CI 仅使用 fixture Key 和 Mock HTTP，不产生真实模型费用；MySQL 使用独立的 Demo 与 Production 测试数据库。
+
+Phase 6-2-B 专项测试位于 `tests/test_provider_center.py`、`tests/test_provider_center_compat.py` 与 `tests/test_provider_center_browser.py`。安全与 API 用 fake transport，数据库兼容用本地 Mock HTTP Server，浏览器使用假密钥。MySQL CI 运行相同迁移与配置流程，覆盖旧密文升级、多配置、连接、默认切换和删除；不会读取宿主机真实模型 Key。
 
 认证、刷新轮换、并发刷新、跨用户资源隔离及真实 Chromium 双用户流程的本轮结果见 [Phase 6-1 报告](docs/phase6-1.md)。MySQL CI 还验证带 Phase 5 用户、工作区和项目的升级及重新登录。没有真实模型依赖。
 

@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .schemas import Step
 
@@ -46,6 +46,30 @@ class ModelConfig(Input):
     api_key: str = Field(min_length=8, max_length=512, repr=False)
     model: str = Field(min_length=1, max_length=160)
     save_mode: Literal["session", "workspace"] = "workspace"
+
+
+    @field_validator("model", "api_key")
+    @classmethod
+    def nonblank_value(cls, value):
+        value = value.strip()
+        if not value or any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise ValueError("字段不能为空或包含控制字符")
+        return value
+
+    @model_validator(mode="after")
+    def keep_key_out_of_metadata(self):
+        if len(self.api_key) < 8 or self.api_key in self.model or self.api_key in self.base_url:
+            raise ValueError("密钥不得放入模型名称或服务地址")
+        return self
+
+
+class ProviderCreate(ModelConfig):
+    base_url: str = Field(default="", max_length=2000)
+
+    @field_validator("base_url")
+    @classmethod
+    def trim_url(cls, value):
+        return value.strip().rstrip("/")
 
 
 class ProductProject(Input):

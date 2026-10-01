@@ -7,7 +7,7 @@ const date = value => value ? new Date(value.endsWith('Z') ? value : value + 'Z'
 let me = null, csrf = '', workspace = '', projects = [], tasks = [], stats = {}, model = {}, selectedProject = '', selectedTask = '', detail = null;
 let authMode = 'login', currentView = 'dashboard', pollBusy = false;
 let refreshing = null, identityVersion = 0;
-let onboarding = null, modelEntryOpen = false;
+let onboarding = null, providerConfigs = [];
 const views = ['dashboard','projects','tasks','workflow','findings','reports','model'];
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => $('toast').hidden = true, 5000); }
 async function api(path, method = 'GET', body) {
@@ -34,7 +34,7 @@ async function api(path, method = 'GET', body) {
 }
 function resetIdentity() {
   identityVersion++; me=null; workspace=''; csrf=''; projects=[]; tasks=[]; stats={}; model={};
-  onboarding=null; modelEntryOpen=false;
+  onboarding=null; providerConfigs=[];
   selectedTask=''; selectedProject=''; detail=null; currentView='dashboard'; authMode='login';
   clearPasswords(); $('dialog').close(); $('dialog').innerHTML='';
 }
@@ -54,18 +54,20 @@ function shell() {
     return;
   }
   routeView();
-  if (needsOnboarding()) { renderOnboarding(); return; }
+  if (needsOnboarding() && currentView !== 'model') { renderOnboarding(); return; }
   $('app').innerHTML = `<aside class="sidebar product-sidebar"><a class="brand" href="#dashboard"><span class="brandmark">A<span>↗</span></span><span>AutoQA <b>Studio</b></span></a>
     <label for="workspace-selector">${text('workspace')}</label><select id="workspace-selector">${me.workspaces.map(w=>`<option value="${esc(w.id)}" ${w.id===workspace?'selected':''}>${esc(w.name === '个人工作区' ? t('personal') : w.name)}</option>`).join('')}</select>
-    <nav>${views.map(v=>`<a class="nav-item ${v===currentView?'active':''}" href="#${v}">${text(v)}</a>`).join('')}</nav>
+    <nav>${views.filter(v=>v!=='model').map(v=>`<a class="nav-item ${v===currentView?'active':''}" href="#${v}">${text(v)}</a>`).join('')}<p class="nav-section">${text('settings')}</p><a class="nav-item ${currentView==='model'?'active':''}" href="#settings/providers">${text('model')}</a></nav>
     <div class="sidebar-bottom"><p>${esc(me.nickname)}</p><p>${esc(me.email)}</p>${button('logout','logout')}</div></aside>
     <main id="main"><header class="topbar"><strong id="page-title">${text(currentView)}</strong><div class="product-top">${languageSelect()}${button('refresh','refresh')}</div></header><div class="content product-content"><div id="content"></div></div></main>`;
   render();
 }
 function needsOnboarding() { return !!onboarding && !onboarding.onboarding_completed; }
 function routeView() {
-  currentView = needsOnboarding() ? 'onboarding' : views.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'dashboard';
-  if (location.hash !== '#'+currentView) history.replaceState(null, '', '#'+currentView);
+  const requested = location.hash.slice(1), modelPage = ['model','settings/providers'].includes(requested);
+  currentView = needsOnboarding() && !(onboarding.step===2 && modelPage) ? 'onboarding' : modelPage ? 'model' : views.includes(requested) ? requested : 'dashboard';
+  const hash = currentView==='model' ? 'settings/providers' : currentView;
+  if (location.hash !== '#'+hash) history.replaceState(null, '', '#'+hash);
 }
 function renderOnboarding() {
   const step = onboarding.step;
@@ -73,7 +75,7 @@ function renderOnboarding() {
   let body = '';
   if (step === 1) body = `<div class="setup-symbol" aria-hidden="true">A↗</div><h1>${text('onboardingWelcome')}</h1><p class="setup-subtitle">${text('onboardingTagline')}</p><p>${text('onboardingWelcomeNote')}</p>${button('onboardingStart','onboarding-start','','primary')}`;
   else if (step === 2) body = `<div class="setup-symbol" aria-hidden="true">✦</div><h1>${text('onboardingModelTitle')}</h1><p class="setup-subtitle">${text('onboardingModelNote')}</p><p>${text('onboardingModelOptional')}</p>
-    ${modelEntryOpen?`<div class="product-notice" role="status">${text('onboardingModelReserved')}</div>`:''}<div class="button-row">${button('onboardingConfigureModel','onboarding-model','','primary')}${button('onboardingLater','onboarding-skip-model')}</div>`;
+    <div class="button-row">${button('onboardingConfigureModel','onboarding-model','','primary')}${button('onboardingLater','onboarding-skip-model')}</div>`;
   else if (step === 3) body = `<div class="setup-symbol" aria-hidden="true">◇</div><h1>${text('onboardingProjectTitle')}</h1><p>${text('onboardingProjectNote')}</p>
     <form id="onboarding-project-form">${field('name','name','','text',true)}<label>${text('onboardingTestType')}<select name="project_type"><option value="api">${text('onboardingApi')}</option><option value="web">${text('onboardingWeb')}</option></select></label>
     <button class="primary" type="submit">${text('onboardingCreateProject')}</button></form>`;
@@ -99,13 +101,15 @@ function table(rows, showProject = true) {
   return `<div class="table-container"><table class="product-table"><thead><tr><th>${text('title')}</th>${showProject?`<th>${text('project')}</th>`:''}<th>${text('status')}</th><th>${text('passed')} / ${text('failed')}</th><th>${text('time')}</th><th></th></tr></thead><tbody>${rows.map(row=>`<tr><td>${esc(row.title)}</td>${showProject?`<td>${esc(row.project_name)}</td>`:''}<td>${badge(row.status)}</td><td>${row.metrics?.passed ?? 0} / ${row.metrics?.failed ?? 0}</td><td>${date(row.run?.started_at || row.created_at)}</td><td>${button('view','task',row.id)}</td></tr>`).join('')}</tbody></table></div>`;
 }
 function render() {
-  if (me && needsOnboarding()) { routeView(); renderOnboarding(); return; }
+  if (me && needsOnboarding() && currentView !== 'model') { renderOnboarding(); return; }
   if (!me || !$('content')) return;
-  document.querySelectorAll('.nav-item').forEach(a=>a.classList.toggle('active', a.hash==='#'+currentView));
+  document.querySelectorAll('.nav-item').forEach(a=>a.classList.toggle('active', a.hash===(currentView==='model'?'#settings/providers':'#'+currentView)));
   $('page-title').textContent = t(currentView);
-  let content = `<div class="page-heading"><div><h1>${text(currentView)}</h1><p>${text('productNote')}</p></div>${button(currentView==='projects'?'newProject':'newTask',currentView==='projects'?'new-project':'new-task','','primary')}</div>`;
+  const owner = me.workspaces.find(w=>w.id===workspace)?.role === 'owner';
+  let content = `<div class="page-heading"><div><h1>${text(currentView)}</h1><p>${text('productNote')}</p></div>${currentView==='model'?(owner?button('addModel','add-model','','primary'):''):button(currentView==='projects'?'newProject':'newTask',currentView==='projects'?'new-project':'new-task','','primary')}</div>`;
   if (!model.configured && currentView !== 'model') content += `<div class="product-notice">${text('modelMissing')} ${button('goModel','model')}</div>`;
   if (currentView === 'dashboard') {
+    if (model.configured) content += `<div class="product-notice model-state" role="status">${text(providerConfigs.find(p=>p.is_active)?.status==='connected'?'modelConnected':'modelConfigured')} ${esc(model.model)} ${button('model','model')}</div>`;
     content += `<section class="panel product-panel"><h2>${text('welcomeBack')}：${esc(me.nickname)}</h2><p>${text('currentWorkspace')}：${esc(me.workspaces.find(w=>w.id===workspace)?.name)}</p></section>`;
     if (onboarding && !onboarding.first_test_completed) content += firstUseProgress();
     if (projects.length || tasks.length || !onboarding) {
@@ -131,13 +135,22 @@ function render() {
 }
 function modelForm() {
   const role = me.workspaces.find(w=>w.id===workspace)?.role;
-  return `<section class="panel product-panel"><p>${text('modelNotice')}</p><p>${text('encryptedNotice')}</p><p>${text('sessionNotice')}</p>
-    ${model.configured ? `<p>${text('keyConfigured')}: <strong>${esc(model.key_mask)}</strong> · ${text(model.save_mode==='session'?'sessionOnly':'workspaceSave')}</p>` : `<h2>${text('modelMissing')}</h2>`}
-    ${role !== 'owner' ? `<p>${text('ownerOnly')}</p>` : `<form id="model-form"><div class="product-form-grid"><label>${text('provider')}<select name="provider" id="provider-select">${['deepseek','openai','compatible'].map(p=>`<option value="${p}" ${model.provider===p?'selected':''}>${p==='deepseek'?'DeepSeek':p==='openai'?'OpenAI':'OpenAI-compatible'}</option>`).join('')}</select></label>
-      ${field('modelName','model',model.model || 'deepseek-chat','text',true)}</div>${field('apiBaseUrl','base_url',model.base_url || 'https://api.deepseek.com','url',true)}
-      ${field(model.configured?'replaceKey':'apiKey','api_key','','password',true)}<fieldset><legend>${text('saveMode')}</legend><label><input type="radio" name="save_mode" value="session">${text('sessionOnly')}</label><label><input type="radio" name="save_mode" value="workspace" checked>${text('workspaceSave')}</label></fieldset>
-      <div class="button-row">${button('testConnection','test-model')}<button class="primary" type="submit">${text('saveConfig')}</button>${model.configured?button('deleteConfig','delete-model'):''}</div></form>`}</section>
+  const names = {deepseek:'DeepSeek',openai:'OpenAI',compatible:t('compatibleProvider')};
+  return `${needsOnboarding()?`<div class="product-notice">${text('onboardingModelCenter')} ${button('onboardingBack','back-onboarding')}${model.configured?button('onboardingNext','onboarding-skip-model','','primary'):''}</div>`:''}
+    <section class="panel product-panel model-summary"><h2>${text('currentModel')}</h2><p>${model.configured?esc(model.model):text('modelMissing')}</p><p>${text('modelNotice')}</p><p>${text('encryptedNotice')}</p><p>${text('sessionNotice')}</p>${role!=='owner'?`<p>${text('ownerOnly')}</p>`:''}</section>
+    <div class="provider-grid">${providerConfigs.map(p=>`<article class="panel product-panel provider-card" data-provider-id="${esc(p.id)}"><div class="provider-heading"><h2>${esc(names[p.provider] || p.provider)}</h2>${p.is_active?`<span class="badge passed">${text('activeModel')}</span>`:`<span class="badge">${text('standbyModel')}</span>`}</div>
+      <dl><div><dt>${text('modelName')}</dt><dd>${esc(p.model)}</dd></div><div><dt>${text('status')}</dt><dd class="provider-status ${esc(p.status)}">${text('providerStatus_'+p.status)}</dd></div><div><dt>${text('apiBaseUrl')}</dt><dd class="mono">${esc(p.base_url)}</dd></div><div><dt>${text('apiKey')}</dt><dd class="mono">${esc(p.masked_key)}</dd></div><div><dt>${text('saveMode')}</dt><dd>${text(p.save_mode==='session'?'sessionOnly':'workspaceSave')}</dd></div></dl>
+      ${role==='owner'?`<div class="button-row">${button('testConnection','test-saved-model',p.id)}${!p.is_active?button('setActiveModel','activate-model',p.id):''}${button('delete','delete-model',p.id)}</div>`:''}</article>`).join('')}</div>
     ${role==='owner'?`<section class="panel product-panel"><h2>${text('members')}</h2><form id="member-form">${field('memberEmail','email','','email',true)}<input type="hidden" name="role" value="member"><button class="secondary" type="submit">${text('addMember')}</button></form></section>`:''}`;
+}
+function modelDialog() {
+  $('dialog').innerHTML = `<form id="model-form"><div class="dialog-heading"><h2>${text('addModel')}</h2>${button('cancel','close')}</div><div class="dialog-body"><p>${text('modelNotice')}</p><div class="product-form-grid"><label>${text('provider')}<select name="provider" id="provider-select"><option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option><option value="compatible">${text('compatibleProvider')}</option></select></label>${field('modelName','model','deepseek-chat','text',true)}</div>
+    ${field('apiBaseUrl','base_url','https://api.deepseek.com','url',true)}${field('apiKey','api_key','','password',true)}<fieldset><legend>${text('saveMode')}</legend><label><input type="radio" name="save_mode" value="session">${text('sessionOnly')}</label><label><input type="radio" name="save_mode" value="workspace" checked>${text('workspaceSave')}</label></fieldset><p>${text('connectionCostNote')}</p></div>
+    <div class="dialog-footer">${button('testConnection','test-model')}<button class="primary" type="submit">${text('saveConfig')}</button></div></form>`;
+  $('model-form').elements.api_key.minLength = 8;
+  $('model-form').elements.api_key.maxLength = 512;
+  $('model-form').elements.model.maxLength = 160;
+  $('dialog').showModal();
 }
 function workflowView() {
   if (!detail) return empty('noExecution');
@@ -159,10 +172,10 @@ async function refresh() {
   if (!me) return;
   const version = identityVersion, activeWorkspace = workspace;
   const previousProgress = JSON.stringify(onboarding);
-  const data = await Promise.all([api('/api/projects'),api('/api/tasks'),api('/api/dashboard'),api('/api/provider'),api('/api/onboarding')]);
+  const data = await Promise.all([api('/api/projects'),api('/api/tasks'),api('/api/dashboard'),api('/api/provider'),api('/api/onboarding'),api('/api/settings/providers')]);
   if (!me || version !== identityVersion || activeWorkspace !== workspace) return;
   const wasOnboarding = needsOnboarding();
-  [projects,tasks,stats,model,onboarding] = data;
+  [projects,tasks,stats,model,onboarding,providerConfigs] = data;
   if (selectedTask) detail = tasks.find(row=>row.id===selectedTask) || null;
   // Initial background reads must not replace the setup form while the user is typing.
   if (needsOnboarding() && previousProgress === JSON.stringify(onboarding) && document.querySelector('.setup-shell')) return;
@@ -185,7 +198,7 @@ function projectDialog(id = '') {
 }
 async function taskDialog(projectId) {
   if (!projects.length) { projectDialog(); return; }
-  if (!model.configured) { currentView='model'; location.hash='model'; render(); return; }
+  if (!model.configured) { currentView='model'; location.hash='settings/providers'; shell(); return; }
   projectId = projectId || selectedProject || projects[0].id;
   if (!projects.find(p=>p.id===projectId)?.url) {
     const environment = await api(`/api/projects/${projectId}/environment`);
@@ -222,7 +235,9 @@ document.addEventListener('submit', async event=>{
   try {
     if (form.id==='auth-form') { const result=await api('/api/auth/'+authMode, 'POST',data); resetIdentity(); csrf=result.csrf_token; me=await api('/api/auth/me'); workspace=me.workspace_id; onboarding=me.onboarding; history.replaceState(null,'','#dashboard'); shell(); await refresh(); }
     else if (form.id==='onboarding-project-form') { const result=await api('/api/onboarding/project','POST',data); onboarding=result.onboarding; renderOnboarding(); }
-    else if (form.id==='model-form') { await api('/api/provider','PUT',data); clearPasswords(); await refresh(); toast(t('saved')); }
+    else if (form.id==='model-form') { await api('/api/settings/providers','POST',data); clearPasswords(); $('dialog').close(); $('dialog').innerHTML='';
+      if (needsOnboarding() && onboarding.step===2) { onboarding=await api('/api/onboarding','PATCH',{action:'skip_model'}); routeView(); shell(); }
+      await refresh(); toast(t('saved')); }
     else if (form.id==='project-form') { await api('/api/projects'+(form.dataset.id?'/'+form.dataset.id:''), form.dataset.id?'PATCH':'POST',data); $('dialog').close(); currentView='projects'; location.hash='projects'; await refresh(); }
     else if (form.id==='task-form') { const secrets=parse(data.session_secrets || '{}'); if (data.username) secrets.USERNAME=data.username; if (data.password) secrets.PASSWORD=data.password;
       const result=await api('/api/tasks','POST',{project_id:data.project_id,target_url:data.target_url,goal:data.goal,title:data.title || null,session_secrets:secrets,endpoints:new FormData(form).getAll('endpoint')});
@@ -240,7 +255,8 @@ document.addEventListener('click', async event=>{
     if (action==='auth-mode') { authMode=authMode==='login'?'register':'login'; shell(); }
     else if (action==='logout') { await api('/api/auth/logout','POST'); resetIdentity(); location.hash=''; shell(); }
     else if (action==='refresh') await refresh();
-    else if (action==='onboarding-model') { modelEntryOpen=true; renderOnboarding(); }
+    else if (action==='onboarding-model' || action==='model') { location.hash='settings/providers'; routeView(); shell(); }
+    else if (action==='back-onboarding') { location.hash='onboarding'; routeView(); shell(); }
     else if (['onboarding-start','onboarding-skip-model','onboarding-complete'].includes(action)) {
       const actions={'onboarding-start':'start','onboarding-skip-model':'skip_model','onboarding-complete':'complete'};
       onboarding=await api('/api/onboarding','PATCH',{action:actions[action]});
@@ -249,12 +265,15 @@ document.addEventListener('click', async event=>{
     else if (action==='close') { clearPasswords(); $('dialog').close(); $('dialog').innerHTML=''; }
     else if (action==='new-project' || action==='edit-project') projectDialog(id);
     else if (action==='new-task') await taskDialog(id);
-    else if (action==='model') { currentView='model'; location.hash='model'; render(); }
+    else if (action==='add-model') modelDialog();
     else if (action==='project') { selectedProject=id; currentView='projects'; location.hash='projects'; render(); await projectDetail(id); }
     else if (action==='task') { selectedTask=id; detail=await api('/api/tasks/'+id); currentView='workflow'; location.hash='workflow'; render(); }
     else if (action==='archive-project' && confirm(t('confirmArchive'))) { await api('/api/projects/'+id,'DELETE'); selectedProject=''; await refresh(); }
-    else if (action==='test-model') { const form=$('model-form'); if (!form.reportValidity()) return; await api('/api/provider/test','POST',formData(form)); clearPasswords(); toast(t('connectionOk')); }
-    else if (action==='delete-model') { await api('/api/provider?save_mode='+model.save_mode,'DELETE'); await refresh(); toast(t('deleted')); }
+    else if (action==='test-model') { const form=$('model-form'); if (!form.reportValidity()) return;
+      try { await api('/api/provider/test','POST',formData(form)); toast(t('connectionOk')); } finally { clearPasswords(); } }
+    else if (action==='test-saved-model') { try { await api(`/api/settings/providers/${encodeURIComponent(id)}/test`,'POST'); toast(t('connectionOk')); } finally { await refresh(); } }
+    else if (action==='activate-model') { await api(`/api/settings/providers/${encodeURIComponent(id)}/activate`,'POST'); await refresh(); toast(t('saved')); }
+    else if (action==='delete-model' && confirm(t('confirmDeleteModel'))) { await api(`/api/settings/providers/${encodeURIComponent(id)}`,'DELETE'); await refresh(); toast(t('deleted')); }
     else if (action==='delete-environment') { await api(`/api/projects/${id}/environment`,'DELETE'); await projectDetail(id); }
     else if (action==='save-plan') { const updated=await api(`/api/tasks/${detail.id}/plan`,'PATCH',parse($('plan-editor').value)); detail=updated; render(); toast(t('saved')); }
     else if (action==='delete-case' || action==='add-case') {
@@ -277,13 +296,14 @@ document.addEventListener('click', async event=>{
 document.addEventListener('change', async event=>{
   try {
     if (event.target.id==='language') { await loadLocale(event.target.value); shell(); if (currentView==='projects' && selectedProject) await projectDetail(selectedProject); }
-    else if (event.target.id==='workspace-selector') { identityVersion++; workspace=event.target.value; selectedProject=''; selectedTask=''; detail=null; projects=[]; tasks=[]; stats={}; model={}; render(); await refresh(); }
+    else if (event.target.id==='workspace-selector') { identityVersion++; workspace=event.target.value; selectedProject=''; selectedTask=''; detail=null; projects=[]; tasks=[]; stats={}; model={}; providerConfigs=[]; clearPasswords(); $('dialog').close(); $('dialog').innerHTML=''; render(); await refresh(); }
     else if (event.target.id==='task-project') await taskEndpoints(event.target.value);
     else if (event.target.id==='provider-select') { const form=$('model-form'),provider=event.target.value; form.elements.base_url.value=provider==='deepseek'?'https://api.deepseek.com':provider==='openai'?'https://api.openai.com/v1':''; form.elements.model.value=provider==='deepseek'?'deepseek-chat':''; }
     else if (event.target.id==='openapi-file') { const file=event.target.files[0]; if (!file) return; if(file.size>1000000) throw Error(t('requestFailed')); await api(`/api/projects/${selectedProject}/openapi`,'POST',{content:await file.text()}); await projectDetail(selectedProject); toast(t('saved')); }
   } catch(error) { toast(error.message); }
 });
-window.addEventListener('hashchange', async()=>{ routeView(); render(); if(currentView==='projects' && selectedProject) await projectDetail(selectedProject).catch(e=>toast(e.message)); });
+window.addEventListener('hashchange', async()=>{ clearPasswords(); $('dialog').close(); $('dialog').innerHTML=''; routeView(); shell(); if(currentView==='projects' && selectedProject) await projectDetail(selectedProject).catch(e=>toast(e.message)); });
+$('dialog').addEventListener('cancel', event=>{ event.preventDefault(); clearPasswords(); $('dialog').close(); $('dialog').innerHTML=''; });
 await loadLocale(preferredLocale());
 currentView=views.includes(location.hash.slice(1))?location.hash.slice(1):'dashboard';
 // Establish CSRF before an automatic refresh on a returning browser session.
