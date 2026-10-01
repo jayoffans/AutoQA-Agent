@@ -16,9 +16,9 @@
 | 8 | 用户 Web URL | 使用已有 LangGraph + Playwright 观察用户目标、生成计划、修改与审批、实际浏览器执行和证据。真实 Chromium 已在独立 HTTP 测试站点验收，使用仅本次运行的账号；真实外部业务项目未实际验收。 |
 | 9 | 中文 | Production 操作 UI 默认简体中文，集中 zh-CN / en-US 字典，导航、状态、阶段、模型、环境、计划、Empty State、Onboarding 支持切换；Chromium 验收通过。后端错误和导出报告暂无完整英文化。旧 Demo 混合界面保持兼容。 |
 | 10 | Demo / Production | 显式两种模式；生产不挂载 Demo 页面与开发前端，部署模式标记阻止共用数据库，生产拒绝接管旧 Demo 库。旧安装未设置 mode 时保持兼容；新 Production 必须显式指定。建议分开 Railway 环境 / 服务 / DB / Volume。 |
-| 11 | Migration | `0001_legacy` + `0002_product`，启动执行 Alembic；空库、重复升级、旧项目及关联任务保留、FK integrity 已在 SQLite 验收。没有 destructive downgrade。真实 Production MySQL 的独立数据库验收配置在 CI；本地无 MySQL 服务。 |
+| 11 | Migration | `0001_legacy` + `0002_product`，启动执行 Alembic；空库、重复升级、旧项目及关联任务保留、FK integrity 已在 SQLite 验收。独立 MySQL 8.4 数据库在远程 CI 完成 Production 迁移、注册、BYOK、环境秘密、执行及重启恢复验收。没有 destructive downgrade；本地无 MySQL 服务。 |
 | 12 | 测试 | 原有 53 项保留，新增 48 项，总计 101 项。本地最终 JUnit 结果见 `docs/phase5-test-results.xml`；MySQL 两项本地跳过。Provider 全为 fixture Key / Mock HTTP，Web 使用真实 Chromium。 |
-| 13 | CI | workflow 保留旧 Demo / Studio / MySQL 检查，新增 Production UI/API 测试、JS 语法、迁移 lint 和独立 Production MySQL 数据库。远程 run 编号与结果以最终交付信息 / GitHub Actions 为准；本地测试不能替代远程 CI。 |
+| 13 | CI | [GitHub Actions run 36837953080](https://github.com/jayoffans/AutoQA-Agent/actions/runs/36837953080) 的 tests / mysql 两个 Job 全部通过，对应代码提交 `dda553726a76d6dd12276fcb9c9a2065892fbf98`。主套件 99 passed / 2 skipped，独立 MySQL Job 3 passed（含重复 SQLite 兼容性检查），两项跳过的 MySQL 用例在该 Job 均已通过。另有 Studio 浏览器 12 项、公开 Demo 浏览器 8 项检查通过；lint / JS / 部署结构检查通过。文档结果提交使用 skip-ci，未修改已验收代码。 |
 | 14 | Commit | 所有变更放在 `codex/phase5-real-product`；最终交付消息提供实际新增 SHA。主分支和公网部署不在本次发布范围。 |
 | 15 | Railway 环境变量 | 必需 mode / env / 主密钥 / 独立 DATABASE_URL / artifact 与 data 路径 / HOST / 平台 PORT。可选公共域名、并发、可信代理与 self-hosted 内网 opt-in；不得配置开发者模型 Key。完整操作步骤见 [Production 部署指南](production-deployment.md)。 |
 | 16 | 生产缺项 | 见下方限制；当前是可验证的产品架构基础，不是经过大规模真实用户运营验证的成熟 SaaS。 |
@@ -31,6 +31,14 @@
 - Web 项目 → 输入独立站点 URL 与临时账号 → 页面观察 → fixture 模型规划 → 修改计划 → 审批 → Chromium 登录与订单断言 → 通过结果、脱敏 DOM / 证据、临时账号不落库。
 - 系统网络失败 → `system_error` → 业务失败计数 0、无伪造 Finding。
 - 用户 B 修改 A 的资源 ID 或工作区头 → 404，无数据泄漏。计划修改和审批在当前进程内串行化，界面审批提交计划 hash，旧版本审批返回 409。
+
+## 新增代码提交
+
+- `be546ef`：Production 工作区、加密 BYOK、通用测试目标、迁移、中文界面与验收。
+- `22e51e3`：为 Linux CI 明确声明共享测试模块包。
+- `dda5537`：调整原浏览器测试的共享 fixture 导入路径；全部旧测试保留，最终远程 CI 通过。
+
+后续文档提交仅记录最终验收结果；没有合并主分支或部署公网服务。
 
 ![Production 干净工作台](assets/production-empty.png)
 
