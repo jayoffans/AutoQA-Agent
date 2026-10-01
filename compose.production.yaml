@@ -1,0 +1,44 @@
+# Separate production entry point; compose.yaml keeps the public Demo defaults.
+services:
+  autoqa:
+    build: .
+    ports:
+      - "127.0.0.1:${PORT:-8765}:8765"
+    environment:
+      AUTOQA_MODE: ${AUTOQA_MODE:?Set AUTOQA_MODE}
+      AUTOQA_ENV: ${AUTOQA_ENV:?Set AUTOQA_ENV}
+      AUTOQA_SECRET_KEY: ${AUTOQA_SECRET_KEY:?Set AUTOQA_SECRET_KEY}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+      AUTOQA_DATA_DIR: ${AUTOQA_DATA_DIR:-/app/data}
+      AUTOQA_ARTIFACT_DIR: ${AUTOQA_ARTIFACT_DIR:-/app/artifacts}
+      AUTOQA_PUBLIC_BASE_URL: ${AUTOQA_PUBLIC_BASE_URL:-}
+      AUTOQA_ALLOW_PRIVATE_TARGETS: ${AUTOQA_ALLOW_PRIVATE_TARGETS:-false}
+      HOST: 0.0.0.0
+      PORT: "8765"
+    volumes:
+      - checkpoints:/app/data
+      - evidence:/app/artifacts
+    shm_size: 1gb
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?Set MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER:?Set MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+volumes:
+  mysql-data:
+  checkpoints:
+  evidence:

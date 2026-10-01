@@ -85,6 +85,11 @@ class Store:
             @event.listens_for(self.engine, "connect")
             def sqlite_constraints(connection, record):
                 connection.execute("PRAGMA foreign_keys=ON")
+        elif database.get_backend_name() == "mysql" and mode == "production":
+            @event.listens_for(self.engine, "connect")
+            def mysql_utc(connection, record):
+                with connection.cursor() as cursor:
+                    cursor.execute("SET SESSION time_zone = '+00:00'")
         self.artifact_dir = artifact_dir
         from .migrations import upgrade
         upgrade(self.engine)

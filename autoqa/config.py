@@ -74,6 +74,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def production_config(self):
+        if self.mode == "production" and self.env == "production" and (
+                "database_url" not in self.model_fields_set or not self.database_url):
+            raise ValueError("Set an explicit DATABASE_URL for production")
         from ipaddress import ip_network
         for cidr in self.trusted_proxy_cidrs.split(","):
             if cidr.strip():

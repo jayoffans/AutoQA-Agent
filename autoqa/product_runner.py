@@ -267,10 +267,11 @@ class ProductRunner:
         self.store.update(task_id, status="cancelled", approval=None)
 
     async def shutdown(self):
-        for job in self.jobs.values():
-            if not job.done():
-                job.cancel()
-        await asyncio.gather(*self.jobs.values(), return_exceptions=True)
+        pending = [job for job in self.jobs.values() if not job.done()]
+        for job in pending:
+            job.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        self.jobs.clear()
         for runner in self.runners.values():
             await runner.shutdown()
         self.transient.clear()
