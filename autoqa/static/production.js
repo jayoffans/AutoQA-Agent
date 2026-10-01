@@ -8,12 +8,14 @@ let me = null, csrf = '', workspace = '', projects = [], tasks = [], stats = {},
 let authMode = 'login', currentView = 'dashboard', pollBusy = false;
 let refreshing = null, identityVersion = 0;
 let onboarding = null, providerConfigs = [];
+let apiModeProject = '', apiNotice = null;
 const views = ['dashboard','projects','tasks','workflow','findings','reports','model'];
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => $('toast').hidden = true, 5000); }
 async function api(path, method = 'GET', body) {
   const version = identityVersion;
+  const multipart = body instanceof FormData;
   const send = () => fetch(path, {method, credentials:'same-origin', headers:{'X-Workspace-ID':workspace, 'X-CSRF-Token':csrf,
-    ...(body !== undefined ? {'Content-Type':'application/json'} : {})}, ...(body !== undefined ? {body:JSON.stringify(body)} : {})});
+    ...(body !== undefined && !multipart ? {'Content-Type':'application/json'} : {})}, ...(body !== undefined ? {body:multipart?body:JSON.stringify(body)} : {})});
   let response = await send();
   if (response.status === 401 && (!path.startsWith('/api/auth/') || path === '/api/auth/me')) {
     if (!refreshing) refreshing = fetch('/api/auth/refresh', {method:'POST',credentials:'same-origin',
@@ -35,6 +37,7 @@ async function api(path, method = 'GET', body) {
 function resetIdentity() {
   identityVersion++; me=null; workspace=''; csrf=''; projects=[]; tasks=[]; stats={}; model={};
   onboarding=null; providerConfigs=[];
+  apiModeProject=''; apiNotice=null;
   selectedTask=''; selectedProject=''; detail=null; currentView='dashboard'; authMode='login';
   clearPasswords(); $('dialog').close(); $('dialog').innerHTML='';
 }
@@ -65,8 +68,11 @@ function shell() {
 function needsOnboarding() { return !!onboarding && !onboarding.onboarding_completed; }
 function routeView() {
   const requested = location.hash.slice(1), modelPage = ['model','settings/providers'].includes(requested);
-  currentView = needsOnboarding() && !(onboarding.step===2 && modelPage) ? 'onboarding' : modelPage ? 'model' : views.includes(requested) ? requested : 'dashboard';
-  const hash = currentView==='model' ? 'settings/providers' : currentView;
+  const apiPage = requested.match(/^projects\/([A-Za-z0-9-]+)\/api-testing$/);
+  apiModeProject = apiPage?.[1] || '';
+  if (apiPage) selectedProject = apiPage[1];
+  currentView = needsOnboarding() && !(onboarding.step===2 && modelPage) ? 'onboarding' : modelPage ? 'model' : apiPage ? 'projects' : views.includes(requested) ? requested : 'dashboard';
+  const hash = currentView==='model' ? 'settings/providers' : apiPage && currentView==='projects' ? requested : currentView;
   if (location.hash !== '#'+hash) history.replaceState(null, '', '#'+hash);
 }
 function renderOnboarding() {
@@ -104,10 +110,10 @@ function render() {
   if (me && needsOnboarding() && currentView !== 'model') { renderOnboarding(); return; }
   if (!me || !$('content')) return;
   document.querySelectorAll('.nav-item').forEach(a=>a.classList.toggle('active', a.hash===(currentView==='model'?'#settings/providers':'#'+currentView)));
-  $('page-title').textContent = t(currentView);
+  $('page-title').textContent = t(apiModeProject?'apiTesting':currentView);
   const owner = me.workspaces.find(w=>w.id===workspace)?.role === 'owner';
-  let content = `<div class="page-heading"><div><h1>${text(currentView)}</h1><p>${text('productNote')}</p></div>${currentView==='model'?(owner?button('addModel','add-model','','primary'):''):button(currentView==='projects'?'newProject':'newTask',currentView==='projects'?'new-project':'new-task','','primary')}</div>`;
-  if (!model.configured && currentView !== 'model') content += `<div class="product-notice">${text('modelMissing')} ${button('goModel','model')}</div>`;
+  let content = `<div class="page-heading"><div><h1>${text(apiModeProject?'apiTesting':currentView)}</h1><p>${text(apiModeProject?'apiSpecHint':'productNote')}</p></div>${apiModeProject?'':currentView==='model'?(owner?button('addModel','add-model','','primary'):''):button(currentView==='projects'?'newProject':'newTask',currentView==='projects'?'new-project':'new-task','','primary')}</div>`;
+  if (!model.configured && currentView !== 'model' && !apiModeProject) content += `<div class="product-notice">${text('modelMissing')} ${button('goModel','model')}</div>`;
   if (currentView === 'dashboard') {
     if (model.configured) content += `<div class="product-notice model-state" role="status">${text(providerConfigs.find(p=>p.is_active)?.status==='connected'?'modelConnected':'modelConfigured')} ${esc(model.model)} ${button('model','model')}</div>`;
     content += `<section class="panel product-panel"><h2>${text('welcomeBack')}：${esc(me.nickname)}</h2><p>${text('currentWorkspace')}：${esc(me.workspaces.find(w=>w.id===workspace)?.name)}</p></section>`;
@@ -119,7 +125,7 @@ function render() {
     if (!projects.length) content += empty('noProjects','firstProject','new-project');
     if (tasks.length) content += `<section class="panel product-panel"><h2>${text('history')}</h2>${table(tasks.slice(0,10))}</section>`;
   } else if (currentView === 'projects') {
-    content += projects.length ? `<div class="project-grid">${projects.map(p=>`<article class="panel project-card"><h2>${esc(p.name)}</h2><p>${text(p.project_type)} · ${text(p.environment)}</p><p class="mono">${p.url?esc(p.url):text('onboardingTargetPending')}</p><p>${esc(p.description)}</p><div class="button-row">${button('open','project',p.id)}${button('newTask','new-task',p.id)}</div></article>`).join('')}</div>` : empty('noProjects','firstProject','new-project');
+    if (!apiModeProject) content += projects.length ? `<div class="project-grid">${projects.map(p=>`<article class="panel project-card"><h2>${esc(p.name)}</h2><p>${text(p.project_type)} · ${text(p.environment)}</p><p class="mono">${p.url?esc(p.url):text('onboardingTargetPending')}</p><p>${esc(p.description)}</p><div class="button-row">${button('open','project',p.id)}${button('newTask','new-task',p.id)}</div></article>`).join('')}</div>` : empty('noProjects','firstProject','new-project');
     if (selectedProject) content += '<div id="project-detail"></div>';
   } else if (currentView === 'tasks') content += table(tasks);
   else if (currentView === 'model') content += modelForm();
@@ -185,15 +191,27 @@ async function refresh() {
 async function projectDetail(id) {
   const project = projects.find(p=>p.id===id);
   if (!project || !$('project-detail')) return;
+  if (apiModeProject===id && project.project_type==='api') { await apiTesting(id); return; }
   const [env,endpoints,history] = await Promise.all([api(`/api/projects/${id}/environment`),api(`/api/projects/${id}/endpoints`),api(`/api/projects/${id}/runs`)]);
-  $('project-detail').innerHTML = `<section class="panel product-panel"><h2>${esc(project.name)}</h2><div class="button-row">${button('edit','edit-project',id)}${button('archive','archive-project',id)}</div><h3>${text('history')}</h3>${history.length?table(history,false):`<p>${text('noHistory')}</p>`}</section>
+  $('project-detail').innerHTML = `<section class="panel product-panel"><h2>${esc(project.name)}</h2><div class="button-row">${button('edit','edit-project',id)}${button('archive','archive-project',id)}${project.project_type==='api'?button('apiTesting','api-testing',id,'primary'):''}</div><h3>${text('history')}</h3>${history.length?table(history,false):`<p>${text('noHistory')}</p>`}</section>
     ${project.project_type==='api'?`<section class="panel product-panel"><h2>${text('openapi')}</h2><form id="openapi-form">${field('openapiUrl','url','','url')}<button class="primary" type="submit">${text('import')}</button></form><label>${text('upload')}<input id="openapi-file" type="file" accept=".json,.yaml,.yml"></label><h3>${text('endpoints')}</h3><pre>${esc(endpoints.map(e=>e.method+' '+e.path+' '+e.summary).join('\n'))}</pre><form id="manual-form">${jarea('manualEndpoints','endpoints',endpoints.length?endpoints:[{path:'/users',method:'GET',summary:'',parameters:[],request_body:{},responses:{}}])}<button class="secondary" type="submit">${text('manualSave')}</button></form></section>`:''}
     <section class="panel product-panel"><h2>${text('environmentConfig')}</h2><form id="environment-form">${field('baseUrl','base_url',env.base_url,'url',true)}${jarea('headers','headers',env.headers)}${jarea('variables','variables',env.variables)}${jarea('secrets','secrets')}
       <p>${text('secretNames')}: ${esc(env.secret_names.join(', ') || '—')}</p><h3>${text('account')}</h3>${env.has_account?`<p>${text('accountSaved')}</p>`:''}<div class="product-form-grid">${field('username','username')}${field('password','password','','password')}</div><p>${text('secretKeep')}</p><div class="button-row"><button class="primary" type="submit">${text('save')}</button>${button('deleteConfig','delete-environment',id)}</div></form></section>`;
 }
+async function apiTesting(id) {
+  const version=identityVersion;
+  const [specs,endpoints]=await Promise.all([api(`/api/projects/${id}/api-specs`),api(`/api/projects/${id}/api-endpoints`)]);
+  if (version!==identityVersion || selectedProject!==id || apiModeProject!==id || !$('project-detail')) return;
+  $('project-detail').innerHTML=`<section class="panel product-panel"><div class="progress-heading"><h2>${esc(projects.find(p=>p.id===id)?.name)}</h2>${button('backProject','back-project',id)}</div>
+    <form id="api-spec-upload-form" data-project-id="${esc(id)}"><label>${text('apiChooseFile')}<input name="file" type="file" accept=".json,.yaml,.yml" required></label><p>${text('apiSpecHint')}</p><button class="primary" type="submit">${text('uploadApiSpec')}</button></form>
+    ${apiNotice?.project_id===id?`<p class="api-import-success" role="status">${text('apiParsed')} · ${text('endpointCount')}: ${esc(apiNotice.count)}</p>`:''}
+    <div class="progress-heading"><h3>${text('endpointCount')}: ${endpoints.length}</h3><button type="button" class="secondary" disabled title="${text('apiPlanningPending')}">${text('generatePlan')}</button></div><p>${text('apiPlanningPending')}</p></section>
+    <section class="panel product-panel"><h2>${text('apiDocuments')}</h2>${specs.length?`<ul class="api-spec-list">${specs.map(s=>`<li data-spec-id="${esc(s.id)}"><span><strong>${esc(s.name)}</strong> · ${esc(s.version)} · ${esc(s.format.toUpperCase())} · ${text('endpointCount')}: ${s.endpoint_count}</span>${button('delete','delete-api-spec',s.id)}</li>`).join('')}</ul>`:`<p>${text('apiNoDocuments')}</p>`}</section>
+    <section class="panel product-panel"><h2>${text('endpoints')}</h2>${endpoints.length?`<div class="api-endpoint-table"><table class="product-table"><thead><tr><th>${text('apiMethod')}</th><th>${text('apiPath')}</th><th>${text('apiSummary')}</th><th>${text('apiParameters')}</th></tr></thead><tbody>${endpoints.map(e=>`<tr><td><strong>${esc(e.method)}</strong></td><td class="mono">${esc(e.path)}</td><td>${esc(e.summary)}</td><td><details><summary>${text('apiParameters')} (${e.parameters.length})</summary><pre>${json(e.parameters)}</pre><h4>${text('apiRequestSchema')}</h4><pre>${json(e.request_schema)}</pre><h4>${text('apiResponseSchema')}</h4><pre>${json(e.response_schema)}</pre></details></td></tr>`).join('')}</tbody></table></div>`:`<p>${text('noEndpoints')}</p>`}</section>`;
+}
 function projectDialog(id = '') {
   const p = projects.find(p=>p.id===id) || {};
-  $('dialog').innerHTML = `<form id="project-form" data-id="${esc(id)}"><div class="dialog-heading"><h2>${text(id?'edit':'newProject')}</h2>${button('cancel','close')}</div><div class="dialog-body">${field('name','name',p.name,'text',true)}${area('description','description',p.description)}<div class="product-form-grid"><label>${text('projectType')}<select name="project_type">${['web','api'].map(v=>`<option value="${v}" ${p.project_type===v?'selected':''}>${text(v)}</option>`).join('')}</select></label><label>${text('environment')}<select name="environment">${['development','testing','staging','custom'].map(v=>`<option value="${v}" ${p.environment===v?'selected':''}>${text(v)}</option>`).join('')}</select></label></div>${field('baseUrl','url',p.url,'url',true)}</div><div class="dialog-footer"><button class="primary" type="submit">${text('save')}</button></div></form>`;
+  $('dialog').innerHTML = `<form id="project-form" data-id="${esc(id)}"><div class="dialog-heading"><h2>${text(id?'edit':'newProject')}</h2>${button('cancel','close')}</div><div class="dialog-body">${field('name','name',p.name,'text',true)}${area('description','description',p.description)}<div class="product-form-grid"><label>${text('projectType')}<select name="project_type">${['web','api'].map(v=>`<option value="${v}" ${p.project_type===v?'selected':''}>${text(v)}</option>`).join('')}</select></label><label>${text('environment')}<select name="environment">${['development','testing','staging','custom'].map(v=>`<option value="${v}" ${p.environment===v?'selected':''}>${text(v)}</option>`).join('')}</select></label></div>${field('baseUrl','url',p.url,'url',(p.project_type || 'web')==='web')}</div><div class="dialog-footer"><button class="primary" type="submit">${text('save')}</button></div></form>`;
   $('dialog').showModal();
 }
 async function taskDialog(projectId) {
@@ -239,6 +257,12 @@ document.addEventListener('submit', async event=>{
       if (needsOnboarding() && onboarding.step===2) { onboarding=await api('/api/onboarding','PATCH',{action:'skip_model'}); routeView(); shell(); }
       await refresh(); toast(t('saved')); }
     else if (form.id==='project-form') { await api('/api/projects'+(form.dataset.id?'/'+form.dataset.id:''), form.dataset.id?'PATCH':'POST',data); $('dialog').close(); currentView='projects'; location.hash='projects'; await refresh(); }
+    else if (form.id==='api-spec-upload-form') { const file=form.elements.file.files[0],id=form.dataset.projectId;
+      if (!file || file.size>1000000) throw Error(t('apiSpecTooLarge'));
+      if (!/\.(json|ya?ml)$/i.test(file.name)) throw Error(t('apiSpecFormat'));
+      const upload=new FormData(); upload.append('file',file);
+      const result=await api(`/api/projects/${id}/api-specs/upload`,'POST',upload);
+      apiNotice={project_id:id,count:result.endpoint_count}; await apiTesting(id); toast(t('apiParsed')); }
     else if (form.id==='task-form') { const secrets=parse(data.session_secrets || '{}'); if (data.username) secrets.USERNAME=data.username; if (data.password) secrets.PASSWORD=data.password;
       const result=await api('/api/tasks','POST',{project_id:data.project_id,target_url:data.target_url,goal:data.goal,title:data.title || null,session_secrets:secrets,endpoints:new FormData(form).getAll('endpoint')});
       clearPasswords(); $('dialog').innerHTML=''; $('dialog').close(); selectedTask=result.id; currentView='workflow'; location.hash='workflow'; await refresh(); }
@@ -267,6 +291,10 @@ document.addEventListener('click', async event=>{
     else if (action==='new-task') await taskDialog(id);
     else if (action==='add-model') modelDialog();
     else if (action==='project') { selectedProject=id; currentView='projects'; location.hash='projects'; render(); await projectDetail(id); }
+    else if (action==='api-testing') { location.hash=`projects/${id}/api-testing`; }
+    else if (action==='back-project') { selectedProject=id; location.hash='projects'; }
+    else if (action==='delete-api-spec' && confirm(t('confirmDeleteApiSpec'))) { const projectId=selectedProject;
+      await api(`/api/projects/${projectId}/api-specs/${encodeURIComponent(id)}`,'DELETE'); apiNotice=null; await apiTesting(projectId); toast(t('deleted')); }
     else if (action==='task') { selectedTask=id; detail=await api('/api/tasks/'+id); currentView='workflow'; location.hash='workflow'; render(); }
     else if (action==='archive-project' && confirm(t('confirmArchive'))) { await api('/api/projects/'+id,'DELETE'); selectedProject=''; await refresh(); }
     else if (action==='test-model') { const form=$('model-form'); if (!form.reportValidity()) return;
@@ -296,8 +324,9 @@ document.addEventListener('click', async event=>{
 document.addEventListener('change', async event=>{
   try {
     if (event.target.id==='language') { await loadLocale(event.target.value); shell(); if (currentView==='projects' && selectedProject) await projectDetail(selectedProject); }
-    else if (event.target.id==='workspace-selector') { identityVersion++; workspace=event.target.value; selectedProject=''; selectedTask=''; detail=null; projects=[]; tasks=[]; stats={}; model={}; providerConfigs=[]; clearPasswords(); $('dialog').close(); $('dialog').innerHTML=''; render(); await refresh(); }
+    else if (event.target.id==='workspace-selector') { identityVersion++; workspace=event.target.value; selectedProject=''; selectedTask=''; detail=null; projects=[]; tasks=[]; stats={}; model={}; providerConfigs=[]; apiModeProject=''; apiNotice=null; if(location.hash.includes('/api-testing')) history.replaceState(null,'','#projects'); clearPasswords(); $('dialog').close(); $('dialog').innerHTML=''; render(); await refresh(); }
     else if (event.target.id==='task-project') await taskEndpoints(event.target.value);
+    else if (event.target.name==='project_type' && event.target.form?.id==='project-form') { event.target.form.elements.url.required=event.target.value==='web'; }
     else if (event.target.id==='provider-select') { const form=$('model-form'),provider=event.target.value; form.elements.base_url.value=provider==='deepseek'?'https://api.deepseek.com':provider==='openai'?'https://api.openai.com/v1':''; form.elements.model.value=provider==='deepseek'?'deepseek-chat':''; }
     else if (event.target.id==='openapi-file') { const file=event.target.files[0]; if (!file) return; if(file.size>1000000) throw Error(t('requestFailed')); await api(`/api/projects/${selectedProject}/openapi`,'POST',{content:await file.text()}); await projectDetail(selectedProject); toast(t('saved')); }
   } catch(error) { toast(error.message); }

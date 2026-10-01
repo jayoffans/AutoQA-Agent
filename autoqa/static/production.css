@@ -10,6 +10,7 @@
 .product-table th{color:#aaa}.product-table pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:360px;font-size:11px}
 .endpoint-list{max-height:320px;overflow:auto;display:grid;gap:12px}.endpoint-list label{display:flex;align-items:center;gap:10px}
 .endpoint-list input{width:auto}.workflow-strip{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:24px}.workflow-chip{border:1px solid #393647;border-radius:8px;padding:14px}
+.api-spec-list{list-style:none;padding:0}.api-spec-list li{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 0;border-bottom:1px solid var(--border)}.api-spec-list span{overflow-wrap:anywhere;min-width:0}.api-endpoint-table{overflow:auto}.api-import-success{color:var(--green);padding:16px;border:1px solid var(--green);border-radius:8px}#api-spec-upload-form{display:grid;gap:12px;margin:24px 0}#api-spec-upload-form button{justify-self:start}#api-spec-upload-form label{display:grid;gap:12px}.api-endpoint-table td{overflow-wrap:anywhere}.api-endpoint-table details pre{max-height:280px;overflow:auto}
 .case-row{display:flex;gap:15px;align-items:center;padding:14px;border-bottom:1px solid #333}.case-row strong{flex:1}
 .product-panel pre{overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}.language-control{display:flex;justify-content:flex-end;margin-bottom:20px}
 .product-content .metric strong{font-size:32px;display:block;margin-top:14px}

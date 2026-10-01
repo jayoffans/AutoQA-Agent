@@ -100,5 +100,13 @@
   "onboardingDone": "已完成",
   "onboardingPending": "待完成",
   "onboardingContinue": "继续设置",
-  "onboardingTargetPending": "待添加测试目标"
+  "onboardingTargetPending": "待添加测试目标",
+  "apiTesting": "API 测试", "backProject": "返回项目", "uploadApiSpec": "上传接口文档",
+  "apiSpecHint": "支持 JSON / YAML · OpenAPI 3.x / Swagger 2.0 · 最大 1 MB。Base URL 可稍后配置。",
+  "apiParsed": "解析完成", "endpointCount": "接口数量", "apiDocuments": "接口文档",
+  "apiNoDocuments": "还没有接口文档，上传文档后即可查看接口。", "apiPlanningPending": "测试计划将在后续阶段开放。",
+  "apiSpecTooLarge": "请选择不超过 1 MB 的接口文档", "apiSpecFormat": "仅支持 JSON / YAML 文件",
+  "apiMethod": "方法", "apiPath": "路径", "apiSummary": "摘要", "apiParameters": "参数信息",
+  "apiRequestSchema": "请求结构", "apiResponseSchema": "响应结构",
+  "confirmDeleteApiSpec": "删除此接口文档及其解析接口？", "apiChooseFile": "选择接口文档"
 }

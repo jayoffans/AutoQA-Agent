@@ -2,7 +2,19 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import Mapped, mapped_column, synonym
 
 from .store_base import Base, now
@@ -103,3 +115,43 @@ class InstallationRow(Base):
     __tablename__ = "installation_mode"
     id: Mapped[int] = mapped_column(primary_key=True)
     mode: Mapped[str] = mapped_column(String(24))
+
+
+class ApiSpecRow(Base):
+    __tablename__ = "api_specs"
+    __table_args__ = (
+        ForeignKeyConstraint(["project_id", "workspace_id"], ["projects.id", "projects.workspace_id"],
+                             name="fk_api_specs_project_workspace"),
+        UniqueConstraint("id", "project_id", "workspace_id", name="uq_api_specs_scope"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    version: Mapped[str] = mapped_column(String(100))
+    format: Mapped[str] = mapped_column(String(8))
+    raw_content: Mapped[str] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class ApiEndpointRow(Base):
+    __tablename__ = "api_endpoints"
+    __table_args__ = (
+        ForeignKeyConstraint(["project_id", "workspace_id"], ["projects.id", "projects.workspace_id"],
+                             name="fk_api_endpoints_project_workspace"),
+        ForeignKeyConstraint(["spec_id", "project_id", "workspace_id"],
+                             ["api_specs.id", "api_specs.project_id", "api_specs.workspace_id"],
+                             name="fk_api_endpoints_spec_scope", ondelete="CASCADE"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    spec_id: Mapped[str] = mapped_column(String(36), index=True)
+    method: Mapped[str] = mapped_column(String(16))
+    path: Mapped[str] = mapped_column(String(1000))
+    summary: Mapped[str] = mapped_column(String(1000))
+    parameters: Mapped[list] = mapped_column(JSON)
+    request_schema: Mapped[dict] = mapped_column(JSON)
+    response_schema: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

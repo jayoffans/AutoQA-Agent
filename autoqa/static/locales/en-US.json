@@ -100,5 +100,13 @@
   "onboardingDone": "Completed",
   "onboardingPending": "Pending",
   "onboardingContinue": "Continue setup",
-  "onboardingTargetPending": "Test target pending"
+  "onboardingTargetPending": "Test target pending",
+  "apiTesting": "API Testing", "backProject": "Back to project", "uploadApiSpec": "Upload API document",
+  "apiSpecHint": "JSON / YAML · OpenAPI 3.x / Swagger 2.0 · Maximum 1 MB. Configure Base URL later.",
+  "apiParsed": "Parsing complete", "endpointCount": "Endpoints", "apiDocuments": "API documents",
+  "apiNoDocuments": "No API documents yet. Upload a document to view its endpoints.", "apiPlanningPending": "Test planning will be available in a later phase.",
+  "apiSpecTooLarge": "Choose an API document no larger than 1 MB", "apiSpecFormat": "Only JSON / YAML files are supported",
+  "apiMethod": "Method", "apiPath": "Path", "apiSummary": "Summary", "apiParameters": "Parameters",
+  "apiRequestSchema": "Request structure", "apiResponseSchema": "Response structure",
+  "confirmDeleteApiSpec": "Delete this API document and its parsed endpoints?", "apiChooseFile": "Choose API document"
 }

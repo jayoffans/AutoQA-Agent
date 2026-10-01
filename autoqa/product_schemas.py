@@ -75,9 +75,15 @@ class ProviderCreate(ModelConfig):
 class ProductProject(Input):
     name: str = Field(min_length=1, max_length=80)
     description: str = Field(default="", max_length=2000)
-    url: str = Field(min_length=8, max_length=2000)
+    url: str = Field(default="", max_length=2000)
     project_type: Literal["web", "api"] = "web"
     environment: str = Field(default="staging", min_length=1, max_length=80)
+
+    @model_validator(mode="after")
+    def require_target_for_web(self):
+        if (self.project_type == "web" or self.url) and len(self.url) < 8:
+            raise ValueError("请填写有效的 Base URL")
+        return self
 
 
 class OnboardingAction(Input):

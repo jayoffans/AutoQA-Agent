@@ -177,6 +177,34 @@ CI `auth-mysql` 执行空库迁移、SQLite / MySQL 认证与权限测试、服�
 
 具体实测结果及未覆盖范围见 [Phase 6-1.5 验收报告](docs/phase6-1.5.md)。
 
+## API Testing Workflow
+
+OpenAPI → Endpoint Parsing → Test Planning。
+
+Phase 6-2-C-1-A 建立稳定的 API 测试输入：创建 **API 测试项目**（可暂不填写 Base URL），
+在项目详情点击 **API 测试**，上传 `.json`、`.yaml` 或 `.yml` 文档。
+成功后显示 **解析完成**、接口数量以及 method / path / summary / 参数与请求响应结构。
+支持 OpenAPI 3.0 / 3.1 / 3.2 和 Swagger 2.0；使用 Prance、openapi-spec-validator 与 SchemaPath，
+不调用模型或目标接口。**生成测试计划**按钮暂时禁用，Test Planning 是后续阶段。
+
+上传文件上限为 1,000,000 bytes（1 MB），仅接受 UTF-8。文档与接口全部绑定当前 Workspace；
+数据库复合外键保证 Project / ApiSpec / ApiEndpoint 归属一致。原始内容只保存到数据库，
+不提供文件下载或 raw-content API。允许文档内 JSON Pointer 引用，Schema 引用（含递归 Schema）
+保留在结构数据中；外部 URL / 文件引用、schema 资源 ID、动态引用、YAML 锚点 / 别名被拒绝。
+单份文档最多 1000 个接口、4 MB 解析结构，另有深度 / 节点数限制。
+
+| API | 用途 |
+| --- | --- |
+| `POST /api/projects/{project_id}/api-specs/upload` | multipart `file` 上传，返回 `spec` 和 `endpoint_count` |
+| `GET /api/projects/{project_id}/api-specs` | 列出规范元信息及其接口数量 |
+| `GET /api/projects/{project_id}/api-endpoints` | 列出已解析接口、参数与请求 / 响应结构 |
+| `DELETE /api/projects/{project_id}/api-specs/{id}` | 删除规范及关联接口 |
+
+Alembic 新增 `0006_api_import`，不修改历史 migration。可用 `python -m alembic upgrade head` 升级；
+新 API 只注册到 Production。现有 Demo 与较早契约 / 执行流程继续保留，新导入数据尚未连接 AI、执行或报告。
+新增测试位于 `tests/test_api_import.py`、`tests/test_api_import_compat.py`、`tests/test_api_import_browser.py`。
+运行结果与限制见 [Phase 6-2-C-1-A 报告](docs/phase6-2c-1a.md)。
+
 ## Verification
 
 ```bash

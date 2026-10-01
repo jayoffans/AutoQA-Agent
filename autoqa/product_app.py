@@ -23,6 +23,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from .api_import import router as api_import_router
 from .auth import ACCESS_SECONDS, REFRESH_SECONDS, CurrentUser, Tokens, current_user, user_info
 from .checkpoints import SQLCheckpointSaver
 from .contracts import parse_contract
@@ -88,6 +89,7 @@ def create_product_app(settings):
 
     app = FastAPI(title="AutoQA Studio", version="2.0.0", lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url=None)
+    app.include_router(api_import_router)
     attempts = defaultdict(deque)
     task_locks = WeakValueDictionary()
 
@@ -527,7 +529,8 @@ def create_product_app(settings):
 
     @app.post("/api/projects", status_code=201)
     def create_project(data: ProductProject, request: Request):
-        target(data.url)
+        if data.url:
+            target(data.url)
         project_id = str(uuid4())
         with Session(app.state.store.engine) as session:
             session.add(ProjectRow(id=project_id, workspace_id=request.state.workspace_id, **data.model_dump()))
@@ -541,7 +544,8 @@ def create_product_app(settings):
     @app.patch("/api/projects/{project_id}")
     def change_project(project_id: str, data: ProductProject, request: Request):
         project(project_id, request)
-        target(data.url)
+        if data.url:
+            target(data.url)
         return app.state.store.change_project(project_id, data.model_dump())
 
     @app.delete("/api/projects/{project_id}", status_code=204)
