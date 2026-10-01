@@ -130,5 +130,17 @@
   "plannerStatus_approved": "已批准",
   "plannerBack": "返回 API 测试",
   "plannerSteps": "测试步骤",
-  "plannerExpected": "预期结果"
+  "plannerExpected": "预期结果",
+  "executionReview": "人工审核与执行",
+  "executionApprove": "审核通过",
+  "executionStart": "执行 API 测试",
+  "executionMissingTarget": "请编辑项目并填写公网 Base URL",
+  "executionHint": "请逐条确认请求和预期状态码。默认参数仅是样例，异常、边界和安全场景需人工调整；本阶段仅断言 HTTP 状态码，不执行文字步骤。审核后请求和目标固定。",
+  "executionScenarioReview": "此场景需要人工调整请求和预期状态码。",
+  "executionDefaults": "参数依据 OpenAPI 生成，请确认适合目标测试环境。",
+  "executionRequest": "请求参数 (JSON)",
+  "executionExpectedStatus": "预期 HTTP 状态码",
+  "executionRuns": "测试运行",
+  "executionNoRuns": "尚未执行测试。",
+  "executionInterrupted": "已保存完成的结果；未完成用例不计为通过。重新执行可能重复产生业务写入。"
 }

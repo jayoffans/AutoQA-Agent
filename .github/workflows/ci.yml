@@ -64,6 +64,7 @@ jobs:
             work/phase6-2b-ui/*.png
             work/phase6-2c-1a-ui/*.png
             work/phase6-2c-1b-ui/*.png
+            work/phase6-2c-1c-ui/*.png
             docs/assets/public-ui-results.json
   auth-mysql:
     runs-on: ubuntu-latest
@@ -90,7 +91,7 @@ jobs:
         run: >-
           pytest tests/test_production_compatibility.py tests/test_database_compatibility.py
           tests/test_product_mysql.py tests/test_auth.py tests/test_provider_center.py
-          tests/test_provider_center_compat.py tests/test_api_import_compat.py tests/test_test_planner_compat.py -q
+          tests/test_provider_center_compat.py tests/test_api_import_compat.py tests/test_test_planner_compat.py tests/test_api_execution_compat.py -q
           --junitxml=work/production-compat/auth-mysql.xml
       - name: Remove only this job's disposable MySQL
         if: always()

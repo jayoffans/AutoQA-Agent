@@ -46,9 +46,10 @@ def test_planner_additive_migration_preserves_spec_and_legacy_tables(compat_sett
         inspector = inspect(engine)
         assert before <= set(inspector.get_table_names())
         with engine.connect() as connection:
-            assert connection.scalar(text('SELECT version_num FROM alembic_version')) == '0007_test_planner'
+            assert connection.scalar(text('SELECT version_num FROM alembic_version')) == '0008_api_execution'
         assert {c['name'] for c in inspector.get_columns('ai_test_plans')} == {
-            'id','workspace_id','project_id','api_spec_id','status','provider','model','created_by','created_at','updated_at'}
+            'id','workspace_id','project_id','api_spec_id','status','provider','model','created_by','created_at','updated_at',
+            'approved_base_url','approved_by','approved_at'}
         assert {fk['referred_table'] for fk in inspector.get_foreign_keys('ai_test_cases')} == {
             'workspaces','ai_test_plans','api_endpoints'}
         assert {'test_plans', 'test_cases'} <= set(inspector.get_table_names())

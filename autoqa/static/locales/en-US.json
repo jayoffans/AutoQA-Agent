@@ -114,7 +114,7 @@
   "plannerGenerating": "Generating test plan…",
   "plannerSpec": "Specification to plan",
   "plannerMissingModel": "Configure and activate a model in Model Center before generating a plan.",
-  "plannerHint": "AI covers positive, negative, boundary and security scenarios. Up to 20 endpoints per document; planning only.",
+  "plannerHint": "AI covers positive, negative, boundary and security scenarios. Up to 20 endpoints per document; review requests before execution.",
   "plannerPlans": "AI test plans",
   "plannerCaseCount": "Test cases",
   "plannerFailed": "Generation failed. No test cases were saved. Check your model service and generate again.",
@@ -130,5 +130,17 @@
   "plannerStatus_approved": "Approved",
   "plannerBack": "Back to API testing",
   "plannerSteps": "Test steps",
-  "plannerExpected": "Expected result"
+  "plannerExpected": "Expected result",
+  "executionReview": "Human review and execution",
+  "executionApprove": "Approve plan",
+  "executionStart": "Execute API tests",
+  "executionMissingTarget": "Edit the project and set a public Base URL",
+  "executionHint": "Review every request and expected status. Defaults are samples; adjust negative, boundary and security scenarios. This phase asserts HTTP status only; prose steps are not executed. Approval freezes requests and the target.",
+  "executionScenarioReview": "Adjust this scenario request and expected status before approval.",
+  "executionDefaults": "OpenAPI defaults: confirm these suit your test environment.",
+  "executionRequest": "Request data (JSON)",
+  "executionExpectedStatus": "Expected HTTP status",
+  "executionRuns": "Test runs",
+  "executionNoRuns": "No test runs yet.",
+  "executionInterrupted": "Completed results were saved; unfinished cases are not counted as passed. Rerunning may repeat business writes."
 }

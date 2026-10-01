@@ -166,6 +166,7 @@ class TestPlan(Base):
                              ["api_specs.id", "api_specs.project_id", "api_specs.workspace_id"],
                              name="fk_ai_plan_spec_scope"),
         UniqueConstraint("id", "workspace_id", name="uq_ai_plan_workspace"),
+        UniqueConstraint("id", "project_id", "workspace_id", name="uq_ai_plan_project_workspace"),
         CheckConstraint("status IN ('draft','generating','ready','failed','approved')", name="ck_ai_plan_status"),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
@@ -179,10 +180,15 @@ class TestPlan(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
 
+    approved_base_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    approved_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
 
 class TestCase(Base):
     __tablename__ = "ai_test_cases"
     __table_args__ = (
+        UniqueConstraint("id", "plan_id", "workspace_id", name="uq_ai_case_plan_workspace"),
         ForeignKeyConstraint(["plan_id", "workspace_id"], ["ai_test_plans.id", "ai_test_plans.workspace_id"],
                              name="fk_ai_case_plan_workspace", ondelete="CASCADE"),
         ForeignKeyConstraint(["endpoint_id", "workspace_id"], ["api_endpoints.id", "api_endpoints.workspace_id"],
@@ -201,3 +207,58 @@ class TestCase(Base):
     steps: Mapped[list] = mapped_column(JSON)
     expected_result: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    execution_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class TestRun(Base):
+    """API plan runs are separate from legacy task/report runs."""
+    __tablename__ = "api_test_runs"
+    __table_args__ = (
+        ForeignKeyConstraint(["plan_id", "project_id", "workspace_id"],
+                             ["ai_test_plans.id", "ai_test_plans.project_id", "ai_test_plans.workspace_id"],
+                             name="fk_api_run_plan_scope"),
+        UniqueConstraint("id", "plan_id", "workspace_id", name="uq_api_run_scope"),
+        CheckConstraint("status IN ('running','passed','failed','interrupted')", name="ck_api_run_status"),
+        CheckConstraint("total_cases >= 0 AND passed_cases >= 0 AND failed_cases >= 0 "
+                        "AND passed_cases + failed_cases <= total_cases", name="ck_api_run_counts"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    plan_id: Mapped[str] = mapped_column(String(36), index=True)
+    # Database-backed single active run per plan; NULL allows later explicit reruns.
+    active_plan_id: Mapped[str | None] = mapped_column(String(36), unique=True, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="running")
+    total_cases: Mapped[int] = mapped_column(Integer)
+    passed_cases: Mapped[int] = mapped_column(Integer, default=0)
+    failed_cases: Mapped[int] = mapped_column(Integer, default=0)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+
+
+class TestExecution(Base):
+    __tablename__ = "api_test_executions"
+    __table_args__ = (
+        ForeignKeyConstraint(["run_id", "plan_id", "workspace_id"],
+                             ["api_test_runs.id", "api_test_runs.plan_id", "api_test_runs.workspace_id"],
+                             name="fk_api_execution_run_scope"),
+        ForeignKeyConstraint(["case_id", "plan_id", "workspace_id"],
+                             ["ai_test_cases.id", "ai_test_cases.plan_id", "ai_test_cases.workspace_id"],
+                             name="fk_api_execution_case_scope"),
+        UniqueConstraint("run_id", "case_id", name="uq_api_execution_case"),
+        CheckConstraint("duration_ms >= 0", name="ck_api_execution_duration"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    plan_id: Mapped[str] = mapped_column(String(36))
+    run_id: Mapped[str] = mapped_column(String(36), index=True)
+    case_id: Mapped[str] = mapped_column(String(36), index=True)
+    method: Mapped[str] = mapped_column(String(16))
+    url: Mapped[str] = mapped_column(String(4000))
+    request_data: Mapped[dict] = mapped_column(JSON)
+    response_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    response_body: Mapped[str | None] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True)
+    passed: Mapped[bool] = mapped_column(Boolean)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_ms: Mapped[int] = mapped_column(Integer)

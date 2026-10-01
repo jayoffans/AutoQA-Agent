@@ -221,7 +221,7 @@ def test_onboarding_migration_preserves_existing_users_and_is_idempotent(tmp_pat
     upgrade(engine)
     upgrade(engine)
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0007_test_planner"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0008_api_execution"
         assert connection.execute(text("SELECT email,password_hash,nickname FROM users")).one() == (
             "old@example.com", "old-password-hash", "老用户")
         assert connection.scalar(text("SELECT COUNT(*) FROM user_onboarding")) == 0

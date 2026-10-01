@@ -11,6 +11,7 @@ let onboarding = null, providerConfigs = [];
 let apiModeProject = '', apiNotice = null;
 let plannerDetailId = '', plannerSpecId = '';
 const planningProjects = new Set();
+const executingPlans = new Set();
 const views = ['dashboard','projects','tasks','workflow','findings','reports','model'];
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => $('toast').hidden = true, 5000); }
 async function api(path, method = 'GET', body) {
@@ -225,11 +226,39 @@ function plannerCounts(counts) {
 }
 async function plannerDetail(planId,projectId) {
   const version=identityVersion;
-  const [plan,cases,endpoints]=await Promise.all([api(`/api/test-plans/${planId}`),api(`/api/test-plans/${planId}/cases`),api(`/api/projects/${projectId}/api-endpoints`)]);
+  const [plan,cases,endpoints,preview,runs]=await Promise.all([api(`/api/test-plans/${planId}`),api(`/api/test-plans/${planId}/cases`),api(`/api/projects/${projectId}/api-endpoints`),api(`/api/test-plans/${planId}/execution-preview`),api(`/api/test-plans/${planId}/runs`)]);
   if(version!==identityVersion || plannerDetailId!==planId || !$('project-detail')) return;
   if(plan.project_id!==projectId) throw Error(t('requestFailed'));
   $('project-detail').innerHTML=`<section class="panel product-panel"><div class="progress-heading"><h2>${text('plannerDetail')}</h2>${button('plannerBack','api-testing',projectId)}</div><p><span class="badge ${esc(plan.status)}">${text('plannerStatus_'+plan.status)}</span> · ${esc(plan.provider)} · ${esc(plan.model)}</p><p>${text('plannerCaseCount')}: ${plan.case_count} · ${date(plan.created_at)}</p>${plannerCounts(plan.category_counts)}<p>${text(plan.status==='failed'?'plannerFailed':'plannerHint')}</p></section>
-    <div class="planner-cases">${cases.map(c=>{const e=endpoints.find(e=>e.id===c.endpoint_id);return `<article class="panel product-panel planner-case"><div class="progress-heading"><h2>${esc(c.name)}</h2><span class="badge">${esc(c.priority)}</span></div><p class="mono">${esc(e?.method)} ${esc(e?.path)}</p><span class="badge">${text('plannerCategory_'+c.category)}</span><p>${esc(c.description)}</p><h3>${text('plannerSteps')}</h3><ol>${c.steps.map(step=>`<li>${esc(step)}</li>`).join('')}</ol><h3>${text('plannerExpected')}</h3><p>${esc(c.expected_result)}</p></article>`;}).join('')}</div>`;
+    <section class="panel product-panel execution-review"><h2>${text('executionReview')}</h2><p>${text('baseUrl')}: <span class="mono">${esc(preview.base_url || t('executionMissingTarget'))}</span></p><p>${text('executionHint')}</p><div class="button-row">${plan.status==='ready'?button('executionApprove','approve-api-plan',planId,'primary'):''}<button class="primary" type="button" data-action="execute-api-plan" data-approved="${plan.status==='approved'}" data-id="${esc(planId)}" ${plan.status!=='approved' || runs.some(r=>r.status==='running') || executingPlans.has(workspace+':'+planId)?'disabled':''}>${text('executionStart')}</button>${button('edit','edit-project',projectId)}</div></section>
+    <section id="api-run-results" class="panel product-panel" aria-live="polite"></section>
+    <div class="planner-cases">${cases.map(c=>{const e=endpoints.find(e=>e.id===c.endpoint_id),p=preview.cases.find(p=>p.case_id===c.id);return `<article class="panel product-panel planner-case"><div class="progress-heading"><h2>${esc(c.name)}</h2><span class="badge">${esc(c.priority)}</span></div><p class="mono">${esc(e?.method)} ${esc(e?.path)}</p><span class="badge">${text('plannerCategory_'+c.category)}</span><p>${esc(c.description)}</p><h3>${text('plannerSteps')}</h3><ol>${c.steps.map(step=>`<li>${esc(step)}</li>`).join('')}</ol><h3>${text('plannerExpected')}</h3><p>${esc(c.expected_result)}</p>${p?`<p>${text(p.requires_review?'executionScenarioReview':'executionDefaults')}</p>${p.error?`<p role="alert">${esc(p.error)}</p>`:''}<label>${text('executionRequest')}<textarea class="json-editor execution-request" data-case-id="${esc(c.id)}" rows="8" ${plan.status==='ready'?'':'readonly'}>${json(p.config.request_data)}</textarea></label><label>${text('executionExpectedStatus')}<input class="execution-status" data-case-id="${esc(c.id)}" type="number" min="100" max="599" required value="${esc(p.config.expected_status)}" ${plan.status==='ready'?'':'readonly'}></label>`:''}</article>`;}).join('')}</div>`;
+  await renderApiRuns(planId,version,runs);
+}
+async function renderApiRuns(planId,version=identityVersion,runs) {
+  runs=runs || await api(`/api/test-plans/${planId}/runs`);
+  const latest=runs[0]?await api(`/api/test-runs/${runs[0].id}`):null;
+  if(version!==identityVersion || plannerDetailId!==planId || !$('api-run-results')) return;
+  $('api-run-results').innerHTML=`<h2>${text('executionRuns')}</h2>${runs.length?runs.map(r=>`<p class="api-run-summary"><span class="badge ${esc(r.status)}">${text(r.status)}</span> · ${text('plannerCaseCount')}: ${r.total_cases} · ${text('passed')}: ${r.passed_cases} · ${text('failed')}: ${r.failed_cases} · ${date(r.started_at)}</p>`).join(''):`<p>${text('executionNoRuns')}</p>`}${latest?.status==='interrupted'?`<p>${text('executionInterrupted')}</p>`:''}${latest?latest.executions.map(e=>`<details class="api-execution"><summary>${esc(e.method)} ${esc(e.url)} · HTTP ${esc(e.response_status ?? '—')} · ${text(e.passed?'passed':'failed')} · ${e.duration_ms} ms</summary><p>${esc(e.error_message)}</p><pre>${json(e.request_data)}</pre><pre>${esc(e.response_body)}</pre></details>`).join(''):''}`;
+  const control=document.querySelector('[data-action="execute-api-plan"]');
+  if(control) control.disabled=control.dataset.approved!=='true' || executingPlans.has(workspace+':'+planId) || runs.some(r=>r.status==='running') || !!document.querySelector('[data-action="approve-api-plan"]');
+}
+async function approveApiPlan(planId) {
+  const cases=[...document.querySelectorAll('.execution-request')].map(input=>{
+    const status=[...document.querySelectorAll('.execution-status')].find(s=>s.dataset.caseId===input.dataset.caseId);
+    if(!status.reportValidity()) throw Error(t('executionExpectedStatus'));
+    return {case_id:input.dataset.caseId,request_data:parse(input.value),expected_status:Number(status.value)};
+  });
+  await api(`/api/test-plans/${planId}/approve`,'POST',{cases});
+  await plannerDetail(planId,selectedProject);
+  toast(t('plannerStatus_approved'));
+}
+async function executeApiPlan(planId) {
+  const key=workspace+':'+planId,version=identityVersion,projectId=selectedProject;
+  if(executingPlans.has(key)) return;
+  executingPlans.add(key);
+  try { await api(`/api/test-plans/${planId}/execute`,'POST'); }
+  finally { executingPlans.delete(key); if(version===identityVersion && plannerDetailId===planId) await plannerDetail(planId,projectId); }
 }
 async function generateApiPlan(projectId) {
   const version=identityVersion, key=workspace+':'+projectId, specId=$('planner-spec')?.value;
@@ -329,6 +358,8 @@ document.addEventListener('click', async event=>{
     else if (action==='api-testing') { location.hash=`projects/${id}/api-testing`; }
     else if (action==='generate-api-plan') await generateApiPlan(id);
     else if (action==='view-api-plan') { location.hash=`projects/${selectedProject}/test-plans/${id}`; }
+    else if (action==='approve-api-plan') await approveApiPlan(id);
+    else if (action==='execute-api-plan') await executeApiPlan(id);
     else if (action==='back-project') { selectedProject=id; location.hash='projects'; }
     else if (action==='delete-api-spec' && confirm(t('confirmDeleteApiSpec'))) { const projectId=selectedProject;
       await api(`/api/projects/${projectId}/api-specs/${encodeURIComponent(id)}`,'DELETE'); apiNotice=null; await apiTesting(projectId); toast(t('deleted')); }
@@ -382,6 +413,10 @@ onboarding=me?.onboarding || null;
 shell();
 if (me) await refresh().catch(error=>toast(error.message));
 setInterval(async()=>{
+  if(me && plannerDetailId && !pollBusy && !$('dialog').open) {
+    pollBusy=true; try { await renderApiRuns(plannerDetailId); } catch(error) { toast(error.message); } finally { pollBusy=false; }
+    return;
+  }
   if(!me || pollBusy || $('dialog').open || !['dashboard','tasks','workflow','findings','reports'].includes(currentView)) return;
   if(currentView==='workflow' && (document.activeElement?.id==='plan-editor' || detail?.status==='awaiting_approval')) return;
   pollBusy=true; try { await refresh(); } catch(error) { toast(error.message); } finally { pollBusy=false; }

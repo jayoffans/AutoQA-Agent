@@ -32,7 +32,7 @@ def test_api_import_migration_preserves_existing_project_and_constraints(compat_
         upgrade(engine)
         with Session(engine) as session:
             assert session.get(ProjectRow, project_id).name == "已有项目"
-            assert session.scalar(text("SELECT version_num FROM alembic_version")) == "0007_test_planner"
+            assert session.scalar(text("SELECT version_num FROM alembic_version")) == "0008_api_execution"
         inspector = inspect(engine)
         for table in ("api_specs", "api_endpoints"):
             assert not next(column for column in inspector.get_columns(table) if column["name"] == "workspace_id")["nullable"]

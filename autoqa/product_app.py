@@ -23,6 +23,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from .api_executor import ApiExecutor
 from .api_import import router as api_import_router
 from .auth import ACCESS_SECONDS, REFRESH_SECONDS, CurrentUser, Tokens, current_user, user_info
 from .checkpoints import SQLCheckpointSaver
@@ -38,6 +39,7 @@ from .product_models import (
     OnboardingRow,
     SessionRow,
     TestPlan,
+    TestRun,
     UserRow,
     WorkspaceRow,
 )
@@ -64,6 +66,7 @@ from .store import Store, TaskRow
 from .store_base import now
 from .studio_models import CaseRow, FindingRow, ProjectRow, RunRow, TaskMetadataRow
 from .target_network import PublicPolicy, fetch_limited, resolve_target
+from .test_execution_api import router as test_execution_router
 from .test_plan_api import router as test_plan_router
 
 ROOT = Path(__file__).parent
@@ -82,9 +85,12 @@ def create_product_app(settings):
         with Session(store.engine) as session:
             session.execute(update(TestPlan).where(TestPlan.status == "generating")
                             .values(status="failed", updated_at=now()))
+            session.execute(update(TestRun).where(TestRun.status == "running").values(
+                status="interrupted", active_plan_id=None, finished_at=now()))
             session.commit()
         app.state.store = store
         app.state.gateway = ProviderGateway(store.engine, box, settings)
+        app.state.api_executor = ApiExecutor()
         app.state.runner = ProductRunner(settings, store, app.state.gateway, SQLCheckpointSaver(store.engine), box)
         try:
             yield
@@ -97,6 +103,7 @@ def create_product_app(settings):
                   docs_url=None, redoc_url=None, openapi_url=None)
     app.include_router(api_import_router)
     app.include_router(test_plan_router)
+    app.include_router(test_execution_router)
     attempts = defaultdict(deque)
     task_locks = WeakValueDictionary()
 
