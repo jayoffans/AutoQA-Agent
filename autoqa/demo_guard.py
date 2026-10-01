@@ -1,6 +1,7 @@
-"""Persistent daily quotas and cookie ownership; no forwarded header trust."""
+"""Persistent quotas; proxy client addresses require an explicit trusted socket range."""
 import hashlib
 from datetime import datetime, timezone
+from ipaddress import ip_address, ip_network
 
 from sqlalchemy import ForeignKey, Integer, String, select, update
 from sqlalchemy.orm import Mapped, mapped_column
@@ -27,6 +28,20 @@ class DemoLimitError(ValueError):
 
 def identity(value):
     return hashlib.sha256(value.encode()).hexdigest()
+
+
+def source_address(request, settings):
+    peer = request.client.host if request.client else "unknown"
+    try:
+        address = ip_address(peer)
+        trusted = any(address in ip_network(cidr.strip(), strict=False)
+                      for cidr in settings.trusted_proxy_cidrs.split(",") if cidr.strip())
+        values = request.headers.getlist("x-real-ip")
+        if trusted and len(values) == 1:
+            return str(ip_address(values[0].strip()))
+    except ValueError:
+        pass
+    return peer
 
 
 def reserve(session, source, settings):

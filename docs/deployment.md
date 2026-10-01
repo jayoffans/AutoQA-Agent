@@ -15,6 +15,7 @@
 | `DEMO_IP_LIMIT` | `3`，UTC 每日 socket 来源额度；0 禁用新建 |
 | `DEMO_LLM_ENABLED` | `false`，强制使用 MockProvider，即使存在模型密钥 |
 | `AUTOQA_DATA_DIR` | `/app/data`；SQLite / 本地检查点必须使用持久卷 |
+| `AUTOQA_TRUSTED_PROXY_CIDRS` | Railway 当前实测 ingress 为 `100.64.0.0/24`；只在确认可信代理地址范围后配置 |
 | `AUTOQA_ARTIFACT_DIR` | `/app/data/artifacts`；推荐把证据和数据放同一持久卷 |
 | `AUTOQA_PUBLIC_BASE_URL` | 可留空，从 `RAILWAY_PUBLIC_DOMAIN` 推导 HTTPS 域名 |
 | `AUTOQA_SEED_DEMO` | 可省略；公开 Demo 在空任务库中自动初始化 |
@@ -37,7 +38,7 @@
 
 业务表、配额、访客归属和报告支持 SQLAlchemy SQLite / MySQL。MySQL 模式的 LangGraph 检查点使用同一数据库中的图检查点表；SQLite 模式保留原有 checkpoint 文件，避免破坏已有审批状态。DateTime 字段统一写入 UTC，SQLite / MySQL 返回的无时区时间按 UTC 解读。JSON、Boolean、Text/LONGTEXT、外键通过 SQLAlchemy 方言适配。事务内的全局配额行写锁同时保护任务创建与来源计数。
 
-来源默认取实际 socket peer，应用忽略访客提供的 `X-Forwarded-For`，以免伪造 IP 绕过限额。Railway 反向代理若把多个访客映射到同一 peer，它们会共享来源额度。这是当前保守限制；全局数据库额度始终生效。部署时根据实测流量调小/调大来源额度，不能据此声称识别了每个真实用户。
+来源默认取实际 socket peer，应用忽略 `X-Forwarded-For`。Railway ingress 的 socket 地址可能逐请求变化，不能直接用于访客限额。只有 socket peer 属于显式配置的 `AUTOQA_TRUSTED_PROXY_CIDRS` 时，才读取单个合法 `X-Real-IP`；Railway edge 提供该客户端地址。[平台请求头说明](https://docs.railway.com/networking/public-networking/specs-and-limits)。未知代理、重复头和非法地址仍使用 socket 来源。默认不信任任何代理；不要填写所有地址范围。使用 VPN / 出口代理的访客可能共享额度，数据库全局额度始终生效。
 
 访客 cookie 随机、HttpOnly、生产 Secure、SameSite=Strict。只能审批或取消自身任务，系统种子只读；不支持公开项目修改、外部站点、自由步骤、shell、调试接口、文件浏览或原始 artifact 下载。报告通过数据库内容呈现 HTTP 证据。生产错误与日志只输出安全摘要，不序列化异常信息、密钥、请求正文或本地文件路径。
 

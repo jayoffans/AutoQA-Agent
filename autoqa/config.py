@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     artifact_dir: Path = Path("artifacts")
     allowed_origins: str = ""
     resource_origins: str = ""
+    trusted_proxy_cidrs: str = ""
     headless: bool = True
     concurrency: int = Field(default=2, ge=1, le=8)
     api_token: str = Field(default="", repr=False)
@@ -64,6 +65,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def production_config(self):
+        from ipaddress import ip_network
+        for cidr in self.trusted_proxy_cidrs.split(","):
+            if cidr.strip():
+                ip_network(cidr.strip(), strict=False)
         if not self.database_url:
             if self.mysql_host:
                 from sqlalchemy import URL

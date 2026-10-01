@@ -16,7 +16,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from .checkpoints import SQLCheckpointSaver
 from .config import Settings
-from .demo_guard import DemoLimitError, identity
+from .demo_guard import DemoLimitError, identity, source_address
 from .reports import report_html
 from .runner import Runner
 from .schemas import TERMINAL, Approval, ProjectCreate, ProjectPatch, TaskCreate
@@ -227,7 +227,7 @@ def create_app(settings: Settings | None = None):
         if counts["running"] + counts["awaiting_approval"] >= 20:
             raise HTTPException(429, "Too many outstanding tasks; complete or cancel existing tasks")
         try:
-            task_id = app.state.store.create(request, source=http_request.client.host if settings.demo_mode else None,
+            task_id = app.state.store.create(request, source=source_address(http_request, settings) if settings.demo_mode else None,
                 owner=http_request.state.visitor, settings=settings)
         except DemoLimitError as error:
             raise HTTPException(429, str(error), headers={"Retry-After": "86400"}) from None
