@@ -14,6 +14,7 @@ import yaml
 from playwright.sync_api import sync_playwright
 from sqlalchemy import URL
 
+from tests.onboarding_support import complete_onboarding
 from tests.production_support import (
     ROOT,
     MockServices,
@@ -128,7 +129,7 @@ def test_docker_build_container_nonroot_and_health(docker_product):
     status = checked_process(["docker", "inspect", "--format", "{{.State.Health.Status}}", container]).decode().strip()
     assert status == "healthy"
     current = live["command"]("exec", "-T", "autoqa", "python", "-m", "alembic", "current").decode()
-    assert "0003_auth" in current
+    assert "0004_onboarding" in current
 
 
 def test_docker_all_required_environment_variables_reach_settings(docker_product):
@@ -194,8 +195,9 @@ def test_docker_https_browser_registration_reload_logout_relogin(docker_product)
             page.locator('#auth-form [name="password"]').fill(password)
             page.locator('#auth-form [name="nickname"]').fill("容器用户")
             page.get_by_role("button", name="注册", exact=True).click()
-            page.get_by_role("heading", name="欢迎回来：容器用户", exact=True).wait_for()
-            page.get_by_role("button", name="创建你的第一个测试项目", exact=True).click()
+            complete_onboarding(page)
+            page.get_by_role("link", name="项目", exact=True).click()
+            page.get_by_role("button", name="创建项目", exact=True).click()
             page.locator('#project-form [name="name"]').fill("容器浏览器项目")
             page.locator('#project-form [name="url"]').fill(live["target"])
             page.locator('#project-form').get_by_role("button", name="保存", exact=True).click()

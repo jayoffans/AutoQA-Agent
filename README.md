@@ -1,5 +1,7 @@
 # AutoQA Studio
 
+Phase 6-2-A：新注册用户进入中文四步首次使用引导，老用户继续直接进入工作台。实现范围、数据库变化、测试与截图见 [首次使用引导报告](docs/phase6-2a.md)。
+
 面向真实 Web / API 项目的 AI 软件测试工作区：解析需求、生成计划、人工审核、受控执行、保留证据与报告。
 
 [![Browser QA CI](https://github.com/jayoffans/AutoQA-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/jayoffans/AutoQA-Agent/actions/workflows/ci.yml)

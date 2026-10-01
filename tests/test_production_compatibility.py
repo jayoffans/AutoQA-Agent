@@ -19,6 +19,7 @@ from autoqa.config import Settings
 from autoqa.crypto import token_hash
 from autoqa.product_models import MemberRow, SessionRow, UserRow, WorkspaceRow
 from autoqa.store_base import Base, now
+from tests.onboarding_support import complete_onboarding
 from tests.production_support import (
     ROOT,
     MockServices,
@@ -80,7 +81,7 @@ def test_empty_database_cli_migration_chain_tables_constraints(compat_settings):
     engine = create_engine(settings.database_url, hide_parameters=True)
     try:
         assert inspect(engine).get_table_names() == []
-        for revision in ("0001_legacy", "0002_product", "0003_auth"):
+        for revision in ("0001_legacy", "0002_product", "0003_auth", "0004_onboarding"):
             cli_migrate(settings, revision)
             with engine.connect() as connection:
                 assert connection.scalar(text("SELECT version_num FROM alembic_version")) == revision
@@ -324,9 +325,10 @@ def test_production_https_browser_reload_logout_relogin_keeps_project(compat_set
                 page.locator('#auth-form [name="password"]').fill(password)
                 page.locator('#auth-form [name="nickname"]').fill("持久用户")
                 page.get_by_role("button", name="注册", exact=True).click()
-                page.get_by_role("heading", name="欢迎回来：持久用户", exact=True).wait_for()
+                complete_onboarding(page)
                 assert "持久用户的工作空间" in page.locator("body").inner_text()
-                page.get_by_role("button", name="创建你的第一个测试项目", exact=True).click()
+                page.get_by_role("link", name="项目", exact=True).click()
+                page.get_by_role("button", name="创建项目", exact=True).click()
                 page.locator('#project-form [name="name"]').fill("浏览器持久项目")
                 page.locator('#project-form [name="url"]').fill(target.url)
                 page.locator('#project-form').get_by_role("button", name="保存", exact=True).click()

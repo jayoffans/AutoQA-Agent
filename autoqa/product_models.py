@@ -2,7 +2,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .store_base import Base, now
@@ -46,6 +46,20 @@ class SessionRow(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     refresh_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class OnboardingRow(Base):
+    __tablename__ = "user_onboarding"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
+    step: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    model_configured: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    project_created: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    first_test_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
 
 
 class ProviderConfigRow(Base):

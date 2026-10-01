@@ -9,6 +9,7 @@ import pytest
 import uvicorn
 from playwright.sync_api import sync_playwright
 
+from tests.onboarding_support import complete_onboarding
 from tests.test_product_browser import web_product as web_product  # noqa: F401 - isolated app fixture
 
 
@@ -58,14 +59,16 @@ def test_production_register_project_logout_relogin_second_user_isolation(auth_b
     page.get_by_role("button", name="注册", exact=True).click()
     fill_auth(page, "chromium-a@example.com", "张三")
     page.get_by_role("button", name="注册", exact=True).click()
+    complete_onboarding(page)
     page.get_by_role("heading", name="欢迎回来：张三", exact=True).wait_for()
-    page.get_by_role("heading", name="还没有项目", exact=True).wait_for()
-    assert page.locator('.metric strong').all_text_contents() == ["0"] * 8
+    page.get_by_role("heading", name="首次使用进度", exact=True).wait_for()
+    assert page.locator('.metric strong').all_text_contents() == ["1"] + ["0"] * 7
     assert "张三的工作空间" in page.locator("body").inner_text()
     assert "Login Demo" not in page.locator("body").inner_text()
     assert "从这里开始" not in page.locator("body").inner_text()
     page.screenshot(path=str(output / "empty-workspace.png"), full_page=True)
-    page.get_by_role("button", name="创建你的第一个测试项目", exact=True).click()
+    page.get_by_role("link", name="项目", exact=True).click()
+    page.get_by_role("button", name="创建项目", exact=True).click()
     page.locator('#project-form [name="name"]').fill("用户 A 的私有项目")
     page.locator('#project-form [name="description"]').fill("用户 A 的私有描述")
     page.locator('#project-form [name="url"]').fill(target_url)
@@ -85,12 +88,13 @@ def test_production_register_project_logout_relogin_second_user_isolation(auth_b
     page.get_by_role("button", name="注册", exact=True).click()
     fill_auth(page, "chromium-b@example.com", "李四")
     page.get_by_role("button", name="注册", exact=True).click()
+    complete_onboarding(page)
     page.get_by_role("heading", name="欢迎回来：李四", exact=True).wait_for()
-    page.get_by_role("heading", name="还没有项目", exact=True).wait_for()
-    assert page.locator('.metric strong').all_text_contents() == ["0"] * 8
+    page.get_by_role("heading", name="首次使用进度", exact=True).wait_for()
+    assert page.locator('.metric strong').all_text_contents() == ["1"] + ["0"] * 7
     assert "用户 A 的私有项目" not in page.locator("body").inner_text()
     assert page.request.get(url + "/api/projects/" + owned).status == 404
-    assert page.request.get(url + "/api/projects").json() == []
+    assert len(page.request.get(url + "/api/projects").json()) == 1
     page.screenshot(path=str(output / "second-user.png"), full_page=True)
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.get_by_role("button", name="退出登录", exact=True).is_visible()
@@ -111,6 +115,7 @@ def test_browser_refresh_and_returning_session_after_access_cookie_expiry(auth_b
     page.get_by_role("button", name="注册", exact=True).click()
     fill_auth(page, "refresh-browser@example.com", "刷新用户")
     page.get_by_role("button", name="注册", exact=True).click()
+    complete_onboarding(page)
     page.get_by_role("heading", name="欢迎回来：刷新用户", exact=True).wait_for()
     # Simulate the browser discarding an expired access cookie, preserving refresh + CSRF binding.
     for reopen in (False, True):

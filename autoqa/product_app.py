@@ -29,10 +29,12 @@ from .contracts import parse_contract
 from .crypto import SecretBox, check_password, hash_password, scrub, token_hash
 from .demo_guard import source_address
 from .gateway import ProviderGateway
+from .onboarding import advance, owned_progress, progress, snapshot
 from .product_models import (
     ContractRow,
     EnvironmentRow,
     MemberRow,
+    OnboardingRow,
     ProviderConfigRow,
     SessionRow,
     UserRow,
@@ -45,6 +47,8 @@ from .product_schemas import (
     EnvironmentConfig,
     MemberInput,
     ModelConfig,
+    OnboardingAction,
+    OnboardingProject,
     ProductProject,
     RealTask,
     RefreshToken,
@@ -251,7 +255,8 @@ def create_product_app(settings):
                               refresh_token_hash=token_hash(pair["refresh_token"])))
         session.commit()
         set_tokens(response, pair, expires_at, raw)
-        return {**pair, "user": user_info(user), "csrf_token": csrf(hashed)}
+        return {**pair, "user": user_info(user), "csrf_token": csrf(hashed),
+                "onboarding": snapshot(session.get(OnboardingRow, user.id))}
 
     @app.post("/api/auth/register", status_code=201)
     def register(data: Registration, response: Response, request: Request):
@@ -267,6 +272,7 @@ def create_product_app(settings):
                                          owner_id=user_id))
                 session.flush()
                 session.add(MemberRow(workspace_id=workspace_id, user_id=user_id, role="owner"))
+                session.add(OnboardingRow(user_id=user_id, workspace_id=workspace_id))
                 return sign_in(session, response, user)
         except IntegrityError:
             raise HTTPException(409, "无法注册此账号，请尝试登录") from None
@@ -330,9 +336,51 @@ def create_product_app(settings):
             workspaces = [{"id": w.id, "name": w.name, "owner_id": w.owner_id, "role": m.role} for w, m in session.execute(
                 select(WorkspaceRow, MemberRow).join(MemberRow).where(MemberRow.user_id == request.state.user_id))]
             info = user_info(user)
+            onboarding = snapshot(session.get(OnboardingRow, identity.user_id))
         return {"user_id": request.state.user_id, "email": request.state.email, "workspaces": workspaces,
                 "nickname": identity.nickname, "user": info,
-                "workspace_id": request.state.workspace_id, "csrf_token": request.state.csrf}
+                "workspace_id": request.state.workspace_id, "csrf_token": request.state.csrf, "onboarding": onboarding}
+
+    @app.get("/api/onboarding")
+    def onboarding_state(identity: CurrentUser = Depends(current_user)):
+        with Session(app.state.store.engine) as session:
+            return progress(session, identity.user_id)
+
+    @app.patch("/api/onboarding")
+    def onboarding_action(data: OnboardingAction, identity: CurrentUser = Depends(current_user)):
+        with Session(app.state.store.engine) as session:
+            return advance(session, identity, data.action)
+
+    @app.post("/api/onboarding/project", status_code=201)
+    def onboarding_project(data: OnboardingProject, request: Request, identity: CurrentUser = Depends(current_user)):
+        with Session(app.state.store.engine) as session:
+            row = owned_progress(session, identity)
+            if row.project_id:
+                return {"project": project(row.project_id, request), "onboarding": snapshot(row)}
+            if row.step != 3 or row.onboarding_completed:
+                raise HTTPException(409, "请先完成当前引导步骤")
+            # Claim this user's step before inserting; concurrent retries cannot create two projects.
+            changed = session.execute(update(OnboardingRow).where(OnboardingRow.user_id == identity.user_id,
+                OnboardingRow.step == 3, OnboardingRow.project_id.is_(None),
+                OnboardingRow.onboarding_completed.is_(False)).values(step=4, project_created=True, updated_at=now()),
+                execution_options={"synchronize_session": False})
+            if changed.rowcount != 1:
+                session.rollback()
+                session.expire_all()
+                row = owned_progress(session, identity)
+                if row.project_id:
+                    return {"project": project(row.project_id, request), "onboarding": snapshot(row)}
+                raise HTTPException(409, "请刷新页面后重试")
+            item = ProjectRow(id=str(uuid4()), workspace_id=identity.workspace_id,
+                              name=data.name, project_type=data.project_type, url="")
+            session.add(item)
+            session.flush()
+            session.execute(update(OnboardingRow).where(OnboardingRow.user_id == identity.user_id)
+                .values(project_id=item.id), execution_options={"synchronize_session": False})
+            session.commit()
+            session.expire_all()
+            return {"project": app.state.store.project_dict(item),
+                    "onboarding": snapshot(session.get(OnboardingRow, identity.user_id))}
 
     @app.post("/api/auth/logout", status_code=204)
     def logout(request: Request, response: Response, data: RefreshToken | None = None):
@@ -385,7 +433,12 @@ def create_product_app(settings):
     @app.put("/api/provider", dependencies=[Depends(owner)])
     def save_provider(data: ModelConfig, request: Request):
         model_target(data)
-        return app.state.gateway.save(request.state.workspace_id, request.state.session_hash, data)
+        result = app.state.gateway.save(request.state.workspace_id, request.state.session_hash, data)
+        with Session(app.state.store.engine) as session:
+            session.execute(update(OnboardingRow).where(OnboardingRow.user_id == request.state.user_id,
+                OnboardingRow.workspace_id == request.state.workspace_id).values(model_configured=True, updated_at=now()))
+            session.commit()
+        return result
 
     @app.post("/api/provider/test", dependencies=[Depends(owner)])
     async def test_provider(data: ModelConfig, request: Request):

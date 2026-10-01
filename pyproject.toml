@@ -28,7 +28,7 @@ autoqa = ["static/*", "static/locales/*", "demo/*"]
 [tool.setuptools.data-files]
 "." = ["alembic.ini"]
 "migrations" = ["migrations/env.py"]
-"migrations/versions" = ["migrations/versions/0001_legacy.py", "migrations/versions/0002_product.py", "migrations/versions/0003_auth.py"]
+"migrations/versions" = ["migrations/versions/0001_legacy.py", "migrations/versions/0002_product.py", "migrations/versions/0003_auth.py", "migrations/versions/0004_onboarding.py"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -56,6 +56,20 @@ class ProductProject(Input):
     environment: str = Field(default="staging", min_length=1, max_length=80)
 
 
+class OnboardingAction(Input):
+    action: Literal["start", "skip_model", "complete"]
+
+
+class OnboardingProject(Input):
+    name: str = Field(min_length=1, max_length=80)
+    project_type: Literal["api", "web"]
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def trim_name(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
 class EnvironmentConfig(Input):
     base_url: str = Field(min_length=8, max_length=2000)
     headers: dict[str, str] = Field(default_factory=dict, max_length=40)

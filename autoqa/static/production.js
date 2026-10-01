@@ -7,6 +7,7 @@ const date = value => value ? new Date(value.endsWith('Z') ? value : value + 'Z'
 let me = null, csrf = '', workspace = '', projects = [], tasks = [], stats = {}, model = {}, selectedProject = '', selectedTask = '', detail = null;
 let authMode = 'login', currentView = 'dashboard', pollBusy = false;
 let refreshing = null, identityVersion = 0;
+let onboarding = null, modelEntryOpen = false;
 const views = ['dashboard','projects','tasks','workflow','findings','reports','model'];
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => $('toast').hidden = true, 5000); }
 async function api(path, method = 'GET', body) {
@@ -33,6 +34,7 @@ async function api(path, method = 'GET', body) {
 }
 function resetIdentity() {
   identityVersion++; me=null; workspace=''; csrf=''; projects=[]; tasks=[]; stats={}; model={};
+  onboarding=null; modelEntryOpen=false;
   selectedTask=''; selectedProject=''; detail=null; currentView='dashboard'; authMode='login';
   clearPasswords(); $('dialog').close(); $('dialog').innerHTML='';
 }
@@ -51,6 +53,8 @@ function shell() {
       <div class="button-row"><button class="primary" type="submit">${text(authMode)}</button>${button(authMode==='login'?'register':'login','auth-mode')}</div></form></section>`;
     return;
   }
+  routeView();
+  if (needsOnboarding()) { renderOnboarding(); return; }
   $('app').innerHTML = `<aside class="sidebar product-sidebar"><a class="brand" href="#dashboard"><span class="brandmark">A<span>↗</span></span><span>AutoQA <b>Studio</b></span></a>
     <label for="workspace-selector">${text('workspace')}</label><select id="workspace-selector">${me.workspaces.map(w=>`<option value="${esc(w.id)}" ${w.id===workspace?'selected':''}>${esc(w.name === '个人工作区' ? t('personal') : w.name)}</option>`).join('')}</select>
     <nav>${views.map(v=>`<a class="nav-item ${v===currentView?'active':''}" href="#${v}">${text(v)}</a>`).join('')}</nav>
@@ -58,11 +62,44 @@ function shell() {
     <main id="main"><header class="topbar"><strong id="page-title">${text(currentView)}</strong><div class="product-top">${languageSelect()}${button('refresh','refresh')}</div></header><div class="content product-content"><div id="content"></div></div></main>`;
   render();
 }
+function needsOnboarding() { return !!onboarding && !onboarding.onboarding_completed; }
+function routeView() {
+  currentView = needsOnboarding() ? 'onboarding' : views.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'dashboard';
+  if (location.hash !== '#'+currentView) history.replaceState(null, '', '#'+currentView);
+}
+function renderOnboarding() {
+  const step = onboarding.step;
+  const steps = ['onboardingWelcomeStep','onboardingModelStep','onboardingProjectStep','onboardingFinishStep'];
+  let body = '';
+  if (step === 1) body = `<div class="setup-symbol" aria-hidden="true">A↗</div><h1>${text('onboardingWelcome')}</h1><p class="setup-subtitle">${text('onboardingTagline')}</p><p>${text('onboardingWelcomeNote')}</p>${button('onboardingStart','onboarding-start','','primary')}`;
+  else if (step === 2) body = `<div class="setup-symbol" aria-hidden="true">✦</div><h1>${text('onboardingModelTitle')}</h1><p class="setup-subtitle">${text('onboardingModelNote')}</p><p>${text('onboardingModelOptional')}</p>
+    ${modelEntryOpen?`<div class="product-notice" role="status">${text('onboardingModelReserved')}</div>`:''}<div class="button-row">${button('onboardingConfigureModel','onboarding-model','','primary')}${button('onboardingLater','onboarding-skip-model')}</div>`;
+  else if (step === 3) body = `<div class="setup-symbol" aria-hidden="true">◇</div><h1>${text('onboardingProjectTitle')}</h1><p>${text('onboardingProjectNote')}</p>
+    <form id="onboarding-project-form">${field('name','name','','text',true)}<label>${text('onboardingTestType')}<select name="project_type"><option value="api">${text('onboardingApi')}</option><option value="web">${text('onboardingWeb')}</option></select></label>
+    <button class="primary" type="submit">${text('onboardingCreateProject')}</button></form>`;
+  else body = `<div class="setup-symbol setup-success" aria-hidden="true">✓</div><h1>${text('onboardingReady')}</h1><p class="setup-subtitle">${text('onboardingReadyNote')}</p><p>${text('onboardingNextNote')}</p>${button('onboardingEnterDashboard','onboarding-complete','','primary')}`;
+  $('app').innerHTML = `<div class="setup-shell"><header class="setup-header"><div class="brand">AutoQA <b>Studio</b></div><div class="product-top">${languageSelect()}${button('logout','logout')}</div></header>
+    <section class="setup-layout"><div class="setup-intro"><span class="setup-kicker">${text('onboardingFirstUse')}</span><h2>${text('onboardingIntro')}</h2><p>${esc(me.workspaces.find(w=>w.id===onboarding.workspace_id)?.name)}</p>
+    <ol class="setup-steps" aria-label="${text('onboardingSteps')}">${steps.map((key,i)=>`<li class="${i+1<step?'done':i+1===step?'active':''}" ${i+1===step?'aria-current="step"':''}><span aria-hidden="true">${i+1<step?'✓':i+1}</span>${text(key)}</li>`).join('')}</ol></div>
+    <section class="panel setup-card" aria-labelledby="setup-step-label"><span id="setup-step-label" class="setup-kicker">${esc(t('onboardingStepCount',{step}))}</span>${body}</section></section></div>`;
+  const nameInput = document.querySelector('#onboarding-project-form [name="name"]');
+  if (nameInput) nameInput.maxLength = 80;
+}
+function firstUseProgress() {
+  const ownWorkspace = onboarding.workspace_id === workspace;
+  const items = [['onboardingAccountDone',true,''],['onboardingWorkspaceDone',true,''],
+    ['onboardingConfigureModel',onboarding.model_configured,'model'],
+    ['onboardingCreateProject',onboarding.project_created,'new-project'],
+    ['onboardingFirstTest',onboarding.first_test_completed,'new-task']];
+  return `<section class="panel product-panel first-use-progress"><div class="progress-heading"><div><span class="setup-kicker">${text('onboardingFirstUse')}</span><h2>${text('onboardingProgress')}</h2></div><span>${esc(t('onboardingProgressCount',{done:items.filter(item=>item[1]).length,total:items.length}))}</span></div>
+    <p>${text('onboardingProgressNote')}</p><ul>${items.map(([key,done,action])=>`<li class="${done?'done':'pending'}"><span class="progress-check" aria-hidden="true">${done?'✓':'○'}</span><span>${text(key)}</span><small>${text(done?'onboardingDone':'onboardingPending')}</small>${!done && ownWorkspace?button('onboardingContinue',action):''}</li>`).join('')}</ul></section>`;
+}
 function table(rows, showProject = true) {
   if (!rows.length) return empty('noTasks','firstTask','new-task');
   return `<div class="table-container"><table class="product-table"><thead><tr><th>${text('title')}</th>${showProject?`<th>${text('project')}</th>`:''}<th>${text('status')}</th><th>${text('passed')} / ${text('failed')}</th><th>${text('time')}</th><th></th></tr></thead><tbody>${rows.map(row=>`<tr><td>${esc(row.title)}</td>${showProject?`<td>${esc(row.project_name)}</td>`:''}<td>${badge(row.status)}</td><td>${row.metrics?.passed ?? 0} / ${row.metrics?.failed ?? 0}</td><td>${date(row.run?.started_at || row.created_at)}</td><td>${button('view','task',row.id)}</td></tr>`).join('')}</tbody></table></div>`;
 }
 function render() {
+  if (me && needsOnboarding()) { routeView(); renderOnboarding(); return; }
   if (!me || !$('content')) return;
   document.querySelectorAll('.nav-item').forEach(a=>a.classList.toggle('active', a.hash==='#'+currentView));
   $('page-title').textContent = t(currentView);
@@ -70,12 +107,15 @@ function render() {
   if (!model.configured && currentView !== 'model') content += `<div class="product-notice">${text('modelMissing')} ${button('goModel','model')}</div>`;
   if (currentView === 'dashboard') {
     content += `<section class="panel product-panel"><h2>${text('welcomeBack')}：${esc(me.nickname)}</h2><p>${text('currentWorkspace')}：${esc(me.workspaces.find(w=>w.id===workspace)?.name)}</p></section>`;
-    content += `<div class="metrics">${metric('projects',stats.projects)}${metric('tasks',stats.tasks)}${metric('issues',stats.issues)}${metric('executions',stats.executions)}</div>`;
-    content += `<div class="metrics">${metric('today',stats.today_runs)}${metric('passed',stats.passed)}${metric('failed',stats.failed)}${metric('system_error',stats.system_errors)}</div>`;
+    if (onboarding && !onboarding.first_test_completed) content += firstUseProgress();
+    if (projects.length || tasks.length || !onboarding) {
+      content += `<div class="metrics">${metric('projects',stats.projects)}${metric('tasks',stats.tasks)}${metric('issues',stats.issues)}${metric('executions',stats.executions)}</div>`;
+      content += `<div class="metrics">${metric('today',stats.today_runs)}${metric('passed',stats.passed)}${metric('failed',stats.failed)}${metric('system_error',stats.system_errors)}</div>`;
+    }
     if (!projects.length) content += empty('noProjects','firstProject','new-project');
     if (tasks.length) content += `<section class="panel product-panel"><h2>${text('history')}</h2>${table(tasks.slice(0,10))}</section>`;
   } else if (currentView === 'projects') {
-    content += projects.length ? `<div class="project-grid">${projects.map(p=>`<article class="panel project-card"><h2>${esc(p.name)}</h2><p>${text(p.project_type)} · ${text(p.environment)}</p><p class="mono">${esc(p.url)}</p><p>${esc(p.description)}</p><div class="button-row">${button('open','project',p.id)}${button('newTask','new-task',p.id)}</div></article>`).join('')}</div>` : empty('noProjects','firstProject','new-project');
+    content += projects.length ? `<div class="project-grid">${projects.map(p=>`<article class="panel project-card"><h2>${esc(p.name)}</h2><p>${text(p.project_type)} · ${text(p.environment)}</p><p class="mono">${p.url?esc(p.url):text('onboardingTargetPending')}</p><p>${esc(p.description)}</p><div class="button-row">${button('open','project',p.id)}${button('newTask','new-task',p.id)}</div></article>`).join('')}</div>` : empty('noProjects','firstProject','new-project');
     if (selectedProject) content += '<div id="project-detail"></div>';
   } else if (currentView === 'tasks') content += table(tasks);
   else if (currentView === 'model') content += modelForm();
@@ -118,11 +158,15 @@ function workflowView() {
 async function refresh() {
   if (!me) return;
   const version = identityVersion, activeWorkspace = workspace;
-  const data = await Promise.all([api('/api/projects'),api('/api/tasks'),api('/api/dashboard'),api('/api/provider')]);
+  const previousProgress = JSON.stringify(onboarding);
+  const data = await Promise.all([api('/api/projects'),api('/api/tasks'),api('/api/dashboard'),api('/api/provider'),api('/api/onboarding')]);
   if (!me || version !== identityVersion || activeWorkspace !== workspace) return;
-  [projects,tasks,stats,model] = data;
+  const wasOnboarding = needsOnboarding();
+  [projects,tasks,stats,model,onboarding] = data;
   if (selectedTask) detail = tasks.find(row=>row.id===selectedTask) || null;
-  render();
+  // Initial background reads must not replace the setup form while the user is typing.
+  if (needsOnboarding() && previousProgress === JSON.stringify(onboarding) && document.querySelector('.setup-shell')) return;
+  if (wasOnboarding !== needsOnboarding()) { routeView(); shell(); } else render();
   if (currentView==='projects' && selectedProject) await projectDetail(selectedProject);
 }
 async function projectDetail(id) {
@@ -143,6 +187,13 @@ async function taskDialog(projectId) {
   if (!projects.length) { projectDialog(); return; }
   if (!model.configured) { currentView='model'; location.hash='model'; render(); return; }
   projectId = projectId || selectedProject || projects[0].id;
+  if (!projects.find(p=>p.id===projectId)?.url) {
+    const environment = await api(`/api/projects/${projectId}/environment`);
+    if (!environment.base_url) {
+      selectedProject=projectId; currentView='projects'; location.hash='projects'; render();
+      await projectDetail(projectId); toast(t('onboardingTargetPending')); return;
+    }
+  }
   $('dialog').innerHTML = `<form id="task-form"><div class="dialog-heading"><h2>${text('newTask')}</h2>${button('cancel','close')}</div><div class="dialog-body"><label>${text('project')}<select name="project_id" id="task-project">${projects.map(p=>`<option value="${esc(p.id)}" ${p.id===projectId?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>${field('testTarget','target_url','','url',true)}${field('title','title')}${area('goal','goal','',4)}<p>${text('goalPlaceholder')}</p><div id="task-endpoints"></div><details><summary>${text('runAccount')}</summary>${field('username','username')}${field('password','password','','password')}${jarea('runSecrets','session_secrets')}<p>${text('runSecretNote')}</p></details></div><div class="dialog-footer"><button class="primary" type="submit">${text('generatePlan')}</button></div></form>`;
   $('dialog').showModal();
   await taskEndpoints(projectId);
@@ -169,7 +220,8 @@ document.addEventListener('submit', async event=>{
   event.preventDefault(); const form=event.target; const data=formData(form);
   const submit=form.querySelector('[type=submit]'); if (submit) submit.disabled=true;
   try {
-    if (form.id==='auth-form') { const result=await api('/api/auth/'+authMode, 'POST',data); resetIdentity(); csrf=result.csrf_token; me=await api('/api/auth/me'); workspace=me.workspace_id; location.hash='dashboard'; shell(); await refresh(); }
+    if (form.id==='auth-form') { const result=await api('/api/auth/'+authMode, 'POST',data); resetIdentity(); csrf=result.csrf_token; me=await api('/api/auth/me'); workspace=me.workspace_id; onboarding=me.onboarding; history.replaceState(null,'','#dashboard'); shell(); await refresh(); }
+    else if (form.id==='onboarding-project-form') { const result=await api('/api/onboarding/project','POST',data); onboarding=result.onboarding; renderOnboarding(); }
     else if (form.id==='model-form') { await api('/api/provider','PUT',data); clearPasswords(); await refresh(); toast(t('saved')); }
     else if (form.id==='project-form') { await api('/api/projects'+(form.dataset.id?'/'+form.dataset.id:''), form.dataset.id?'PATCH':'POST',data); $('dialog').close(); currentView='projects'; location.hash='projects'; await refresh(); }
     else if (form.id==='task-form') { const secrets=parse(data.session_secrets || '{}'); if (data.username) secrets.USERNAME=data.username; if (data.password) secrets.PASSWORD=data.password;
@@ -188,6 +240,12 @@ document.addEventListener('click', async event=>{
     if (action==='auth-mode') { authMode=authMode==='login'?'register':'login'; shell(); }
     else if (action==='logout') { await api('/api/auth/logout','POST'); resetIdentity(); location.hash=''; shell(); }
     else if (action==='refresh') await refresh();
+    else if (action==='onboarding-model') { modelEntryOpen=true; renderOnboarding(); }
+    else if (['onboarding-start','onboarding-skip-model','onboarding-complete'].includes(action)) {
+      const actions={'onboarding-start':'start','onboarding-skip-model':'skip_model','onboarding-complete':'complete'};
+      onboarding=await api('/api/onboarding','PATCH',{action:actions[action]});
+      routeView(); shell(); if (!needsOnboarding()) await refresh();
+    }
     else if (action==='close') { clearPasswords(); $('dialog').close(); $('dialog').innerHTML=''; }
     else if (action==='new-project' || action==='edit-project') projectDialog(id);
     else if (action==='new-task') await taskDialog(id);
@@ -225,7 +283,7 @@ document.addEventListener('change', async event=>{
     else if (event.target.id==='openapi-file') { const file=event.target.files[0]; if (!file) return; if(file.size>1000000) throw Error(t('requestFailed')); await api(`/api/projects/${selectedProject}/openapi`,'POST',{content:await file.text()}); await projectDetail(selectedProject); toast(t('saved')); }
   } catch(error) { toast(error.message); }
 });
-window.addEventListener('hashchange', async()=>{ currentView=views.includes(location.hash.slice(1))?location.hash.slice(1):'dashboard'; render(); if(currentView==='projects' && selectedProject) await projectDetail(selectedProject).catch(e=>toast(e.message)); });
+window.addEventListener('hashchange', async()=>{ routeView(); render(); if(currentView==='projects' && selectedProject) await projectDetail(selectedProject).catch(e=>toast(e.message)); });
 await loadLocale(preferredLocale());
 currentView=views.includes(location.hash.slice(1))?location.hash.slice(1):'dashboard';
 // Establish CSRF before an automatic refresh on a returning browser session.
@@ -233,6 +291,7 @@ try { const result=await fetch('/api/auth/me',{credentials:'same-origin'}); if(r
   const bootstrap=await fetch('/api/auth/csrf',{credentials:'same-origin'});
   if(bootstrap.ok) { csrf=(await bootstrap.json()).csrf_token; me=await api('/api/auth/me'); workspace=me.workspace_id; }
 } } catch { resetIdentity(); }
+onboarding=me?.onboarding || null;
 shell();
 if (me) await refresh().catch(error=>toast(error.message));
 setInterval(async()=>{

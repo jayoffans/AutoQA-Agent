@@ -10,9 +10,12 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 from playwright.sync_api import sync_playwright
+from sqlalchemy import delete
+from sqlalchemy.orm import Session
 
 from autoqa.app import create_app
 from autoqa.config import Settings
+from autoqa.product_models import OnboardingRow
 from tests.test_product import KEY, SECRET, SPEC, api_plan, register, wait
 
 WEB_HTML = b'''<!doctype html><html><body><h1>Customer app</h1><input id="username">
@@ -89,6 +92,10 @@ def test_real_web_target_plan_edit_approval_browser_evidence_and_run_only_accoun
     assert client.post(f"/api/tasks/{task_id}/approve", json={"approved": True}).status_code == 202
     final = wait(client, task_id, "passed")
     assert final["metrics"]["passed"] == 1 and final["steps"][-1]["step"]["description"] == "人工修改后的订单断言"
+    # Terminal status is persisted before asynchronous browser/session cleanup finishes.
+    deadline = time.monotonic() + 10
+    while task_id in app.state.runner.transient and time.monotonic() < deadline:
+        time.sleep(0.05)
     assert final["findings"] == [] and task_id not in app.state.runner.transient
     assert not list((tmp_path / "artifacts").rglob("*.zip"))
     assert not list((tmp_path / "artifacts").rglob("*.png"))
@@ -139,6 +146,12 @@ def test_production_ui_empty_onboarding_language_and_model_no_seeds(web_product)
             page.locator('[name="email"]').fill("browser@example.com")
             page.locator('[name="password"]').fill("fixture-browser-password")
             page.get_by_role("button", name="注册", exact=True).click()
+            # Verify the unchanged empty Dashboard for a pre-onboarding account.
+            page.get_by_role("heading", name="欢迎使用 AutoQA Studio", exact=True).wait_for()
+            with Session(app.state.store.engine) as session:
+                session.execute(delete(OnboardingRow))
+                session.commit()
+            page.reload()
             page.get_by_role("heading", name="还没有项目").wait_for()
             body = page.locator("body").inner_text()
             assert "创建你的第一个测试项目" in body and "尚未配置模型服务" in body
