@@ -122,6 +122,39 @@ python -m autoqa
 
 Docker 与 Railway 环境变量、Volume、数据库及 HTTPS 配置见 [正式版部署指南](docs/production-deployment.md)。不要复制开发者模型 Key。当前要求单进程 / 单副本；临时配置和运行队列不能跨进程共享。
 
+## Production Compatibility
+
+支持 **SQLite development** 与 **MySQL production**。数据库使用 **Alembic**，现有迁移链为
+`0001_legacy → 0002_product → 0003_auth`。Production 必须显式注入 `DATABASE_URL` 和
+`AUTOQA_SECRET_KEY`；没有默认生产数据库地址或开发密码。MySQL 迁移与生产连接统一使用 UTC。
+
+独立生产容器入口为 `compose.production.yaml`。先在本机未跟踪的 `.env.production` 中配置
+`AUTOQA_MODE=production`、`AUTOQA_ENV=production`、随机主密钥、显式 MySQL URL，以及
+`MYSQL_DATABASE`、`MYSQL_USER`、`MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD`，然后执行：
+
+```bash
+docker compose --env-file .env.production -f compose.production.yaml build
+docker compose --env-file .env.production -f compose.production.yaml up -d --wait
+```
+
+容器接受 `AUTOQA_MODE`、`AUTOQA_ENV`、`AUTOQA_SECRET_KEY`、`DATABASE_URL`、
+`AUTOQA_DATA_DIR`、`AUTOQA_ARTIFACT_DIR` 环境变量。默认命名卷分别保存 MySQL 数据、
+`/app/data` 与 `/app/artifacts`；自定义目录应位于这两个应用卷内。重建时使用 `down`，保留卷；
+`down --volumes` 会删除数据。生产浏览器需要 HTTPS；验收使用本机临时 TLS 入口。
+
+CI `auth-mysql` 执行空库迁移、SQLite / MySQL 认证与权限测试、服务重启与 Chromium 验收。
+`docker-production` 实际执行 Docker build、Compose up、`GET /health`、环境变量注入、
+容器重建后的卷持久化与 HTTPS 浏览器流程。测试使用随机临时凭据和本地 Mock HTTP Provider，
+不访问真实模型、不修改生产 Provider 的 BYOK 行为。
+
+**Container: Docker verified** — 已在 GitHub Actions 的真实 Docker / MySQL 环境完成上述容器验收；
+证据与具体限制见下方报告。
+
+现有 `compose.yaml` / `docker-compose.yml` 继续作为 Demo 入口，`AUTOQA_MODE=demo` 与 Seed
+保持兼容。本阶段没有部署 Railway、修改公开 Demo 或合并 main。
+
+具体实测结果及未覆盖范围见 [Phase 6-1.5 验收报告](docs/phase6-1.5.md)。
+
 ## Verification
 
 ```bash
