@@ -6,17 +6,35 @@ const json = value => esc(JSON.stringify(value, null, 2));
 const date = value => value ? new Date(value.endsWith('Z') ? value : value + 'Z').toLocaleString(locale(), {timeZone:'Asia/Shanghai'}) : '—';
 let me = null, csrf = '', workspace = '', projects = [], tasks = [], stats = {}, model = {}, selectedProject = '', selectedTask = '', detail = null;
 let authMode = 'login', currentView = 'dashboard', pollBusy = false;
+let refreshing = null, identityVersion = 0;
 const views = ['dashboard','projects','tasks','workflow','findings','reports','model'];
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => $('toast').hidden = true, 5000); }
 async function api(path, method = 'GET', body) {
-  const response = await fetch(path, {method, credentials:'same-origin', headers:{'X-Workspace-ID':workspace, 'X-CSRF-Token':csrf,
+  const version = identityVersion;
+  const send = () => fetch(path, {method, credentials:'same-origin', headers:{'X-Workspace-ID':workspace, 'X-CSRF-Token':csrf,
     ...(body !== undefined ? {'Content-Type':'application/json'} : {})}, ...(body !== undefined ? {body:JSON.stringify(body)} : {})});
+  let response = await send();
+  if (response.status === 401 && (!path.startsWith('/api/auth/') || path === '/api/auth/me')) {
+    if (!refreshing) refreshing = fetch('/api/auth/refresh', {method:'POST',credentials:'same-origin',
+      headers:{'X-CSRF-Token':csrf}}).then(async result => {
+        if (!result.ok) throw Error(t('sessionExpired'));
+        const data = await result.json();
+        if (version === identityVersion) csrf = data.csrf_token;
+      }).finally(() => refreshing = null);
+    try { await refreshing; if (version === identityVersion) response = await send(); } catch {}
+  }
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    if (response.status === 401 && me) { me = null; shell(); }
+    if (response.status === 401 && me && version === identityVersion) { resetIdentity(); shell(); }
     throw Error(error.detail || t('requestFailed'));
   }
+  if (version !== identityVersion) throw Error(t('requestFailed'));
   return response.status === 204 ? null : response.json();
+}
+function resetIdentity() {
+  identityVersion++; me=null; workspace=''; csrf=''; projects=[]; tasks=[]; stats={}; model={};
+  selectedTask=''; selectedProject=''; detail=null; currentView='dashboard'; authMode='login';
+  clearPasswords(); $('dialog').close(); $('dialog').innerHTML='';
 }
 const button = (key, action, id = '', kind = 'secondary') => `<button class="${kind}" type="button" data-action="${action}" data-id="${esc(id)}">${text(key)}</button>`;
 const field = (key, name, value = '', type = 'text', required = false) => `<label>${text(key)}<input name="${name}" type="${type}" value="${esc(value)}" ${required ? 'required' : ''} ${type === 'password' ? 'autocomplete="off"' : ''}></label>`;
@@ -28,15 +46,15 @@ function badge(status) { return `<span class="badge ${esc(status)}">${text(statu
 function metric(key, value) { return `<article class="panel metric"><span>${text(key)}</span><strong>${esc(value ?? 0)}</strong></article>`; }
 function shell() {
   if (!me) {
-    $('app').innerHTML = `<section class="panel auth-shell"><div class="language-control">${languageSelect()}</div><div class="brand">AutoQA Studio</div><h1>${text('loginTitle')}</h1><p>${text('loginNote')}</p>
-      <form id="auth-form">${field('email','email','','email',true)}${field('password','password','','password',true)}<small>${text('passwordHint')}</small>
+    $('app').innerHTML = `<section class="panel auth-shell"><div class="language-control">${languageSelect()}</div><div class="brand">AutoQA Studio</div><h1>${text('platformTitle')}</h1><p>${text('loginNote')}</p>
+      <form id="auth-form">${field('email','email','','email',true)}${authMode==='register'?field('nickname','nickname'):''}${field('password','password','','password',true)}<small>${text('passwordHint')}</small>
       <div class="button-row"><button class="primary" type="submit">${text(authMode)}</button>${button(authMode==='login'?'register':'login','auth-mode')}</div></form></section>`;
     return;
   }
   $('app').innerHTML = `<aside class="sidebar product-sidebar"><a class="brand" href="#dashboard"><span class="brandmark">A<span>↗</span></span><span>AutoQA <b>Studio</b></span></a>
     <label for="workspace-selector">${text('workspace')}</label><select id="workspace-selector">${me.workspaces.map(w=>`<option value="${esc(w.id)}" ${w.id===workspace?'selected':''}>${esc(w.name === '个人工作区' ? t('personal') : w.name)}</option>`).join('')}</select>
     <nav>${views.map(v=>`<a class="nav-item ${v===currentView?'active':''}" href="#${v}">${text(v)}</a>`).join('')}</nav>
-    <div class="sidebar-bottom"><p>${esc(me.email)}</p>${button('logout','logout')}</div></aside>
+    <div class="sidebar-bottom"><p>${esc(me.nickname)}</p><p>${esc(me.email)}</p>${button('logout','logout')}</div></aside>
     <main id="main"><header class="topbar"><strong id="page-title">${text(currentView)}</strong><div class="product-top">${languageSelect()}${button('refresh','refresh')}</div></header><div class="content product-content"><div id="content"></div></div></main>`;
   render();
 }
@@ -51,11 +69,11 @@ function render() {
   let content = `<div class="page-heading"><div><h1>${text(currentView)}</h1><p>${text('productNote')}</p></div>${button(currentView==='projects'?'newProject':'newTask',currentView==='projects'?'new-project':'new-task','','primary')}</div>`;
   if (!model.configured && currentView !== 'model') content += `<div class="product-notice">${text('modelMissing')} ${button('goModel','model')}</div>`;
   if (currentView === 'dashboard') {
+    content += `<section class="panel product-panel"><h2>${text('welcomeBack')}：${esc(me.nickname)}</h2><p>${text('currentWorkspace')}：${esc(me.workspaces.find(w=>w.id===workspace)?.name)}</p></section>`;
     content += `<div class="metrics">${metric('projects',stats.projects)}${metric('tasks',stats.tasks)}${metric('issues',stats.issues)}${metric('executions',stats.executions)}</div>`;
     content += `<div class="metrics">${metric('today',stats.today_runs)}${metric('passed',stats.passed)}${metric('failed',stats.failed)}${metric('system_error',stats.system_errors)}</div>`;
     if (!projects.length) content += empty('noProjects','firstProject','new-project');
-    if (!tasks.length) content += `<section class="panel product-panel"><h2>${text('onboarding')}</h2><div class="onboarding">${['step1','step2','step3','step4','step5'].map((v,i)=>`<span class="${(i===0 && projects.length || i===1 && model.configured)?'done':''}">${i+1} · ${text(v)}</span>`).join('')}</div></section>`;
-    else content += `<section class="panel product-panel"><h2>${text('history')}</h2>${table(tasks.slice(0,10))}</section>`;
+    if (tasks.length) content += `<section class="panel product-panel"><h2>${text('history')}</h2>${table(tasks.slice(0,10))}</section>`;
   } else if (currentView === 'projects') {
     content += projects.length ? `<div class="project-grid">${projects.map(p=>`<article class="panel project-card"><h2>${esc(p.name)}</h2><p>${text(p.project_type)} · ${text(p.environment)}</p><p class="mono">${esc(p.url)}</p><p>${esc(p.description)}</p><div class="button-row">${button('open','project',p.id)}${button('newTask','new-task',p.id)}</div></article>`).join('')}</div>` : empty('noProjects','firstProject','new-project');
     if (selectedProject) content += '<div id="project-detail"></div>';
@@ -79,7 +97,7 @@ function modelForm() {
       ${field('modelName','model',model.model || 'deepseek-chat','text',true)}</div>${field('apiBaseUrl','base_url',model.base_url || 'https://api.deepseek.com','url',true)}
       ${field(model.configured?'replaceKey':'apiKey','api_key','','password',true)}<fieldset><legend>${text('saveMode')}</legend><label><input type="radio" name="save_mode" value="session">${text('sessionOnly')}</label><label><input type="radio" name="save_mode" value="workspace" checked>${text('workspaceSave')}</label></fieldset>
       <div class="button-row">${button('testConnection','test-model')}<button class="primary" type="submit">${text('saveConfig')}</button>${model.configured?button('deleteConfig','delete-model'):''}</div></form>`}</section>
-    ${role==='owner'?`<section class="panel product-panel"><h2>${text('members')}</h2><form id="member-form">${field('memberEmail','email','','email',true)}<label>${text('role')}<select name="role"><option value="member">${text('member')}</option><option value="owner">${text('owner')}</option></select></label><button class="secondary" type="submit">${text('addMember')}</button></form></section>`:''}`;
+    ${role==='owner'?`<section class="panel product-panel"><h2>${text('members')}</h2><form id="member-form">${field('memberEmail','email','','email',true)}<input type="hidden" name="role" value="member"><button class="secondary" type="submit">${text('addMember')}</button></form></section>`:''}`;
 }
 function workflowView() {
   if (!detail) return empty('noExecution');
@@ -99,7 +117,10 @@ function workflowView() {
 }
 async function refresh() {
   if (!me) return;
-  [projects,tasks,stats,model] = await Promise.all([api('/api/projects'),api('/api/tasks'),api('/api/dashboard'),api('/api/provider')]);
+  const version = identityVersion, activeWorkspace = workspace;
+  const data = await Promise.all([api('/api/projects'),api('/api/tasks'),api('/api/dashboard'),api('/api/provider')]);
+  if (!me || version !== identityVersion || activeWorkspace !== workspace) return;
+  [projects,tasks,stats,model] = data;
   if (selectedTask) detail = tasks.find(row=>row.id===selectedTask) || null;
   render();
   if (currentView==='projects' && selectedProject) await projectDetail(selectedProject);
@@ -137,7 +158,8 @@ function formData(form) { return Object.fromEntries(new FormData(form).entries()
 function parse(value) { try { return JSON.parse(value); } catch { throw Error(t('invalidJson')); } }
 function clearPasswords() { document.querySelectorAll('input[type=password]').forEach(input=>input.value=''); }
 async function download(path) {
-  const response = await fetch(path,{headers:{'X-Workspace-ID':workspace},credentials:'same-origin'});
+  let response = await fetch(path,{headers:{'X-Workspace-ID':workspace},credentials:'same-origin'});
+  if (response.status===401) { await api('/api/auth/me'); response=await fetch(path,{headers:{'X-Workspace-ID':workspace},credentials:'same-origin'}); }
   if (!response.ok) throw Error(t('requestFailed'));
   const blobUrl = URL.createObjectURL(await response.blob());
   const link = document.createElement('a'); link.href=blobUrl; link.download=path.split('/').at(-1)==='report'?'autoqa-report.html':path.split('/').at(-1); link.click();
@@ -147,7 +169,7 @@ document.addEventListener('submit', async event=>{
   event.preventDefault(); const form=event.target; const data=formData(form);
   const submit=form.querySelector('[type=submit]'); if (submit) submit.disabled=true;
   try {
-    if (form.id==='auth-form') { const result=await api('/api/auth/'+authMode, 'POST',data); csrf=result.csrf_token; me=await api('/api/auth/me'); workspace=me.workspace_id; shell(); await refresh(); }
+    if (form.id==='auth-form') { const result=await api('/api/auth/'+authMode, 'POST',data); resetIdentity(); csrf=result.csrf_token; me=await api('/api/auth/me'); workspace=me.workspace_id; location.hash='dashboard'; shell(); await refresh(); }
     else if (form.id==='model-form') { await api('/api/provider','PUT',data); clearPasswords(); await refresh(); toast(t('saved')); }
     else if (form.id==='project-form') { await api('/api/projects'+(form.dataset.id?'/'+form.dataset.id:''), form.dataset.id?'PATCH':'POST',data); $('dialog').close(); currentView='projects'; location.hash='projects'; await refresh(); }
     else if (form.id==='task-form') { const secrets=parse(data.session_secrets || '{}'); if (data.username) secrets.USERNAME=data.username; if (data.password) secrets.PASSWORD=data.password;
@@ -164,7 +186,7 @@ document.addEventListener('click', async event=>{
   const action=control.dataset.action,id=control.dataset.id; control.disabled=true;
   try {
     if (action==='auth-mode') { authMode=authMode==='login'?'register':'login'; shell(); }
-    else if (action==='logout') { await api('/api/auth/logout','POST'); me=null; workspace=''; selectedTask=''; selectedProject=''; detail=null; csrf=''; shell(); }
+    else if (action==='logout') { await api('/api/auth/logout','POST'); resetIdentity(); location.hash=''; shell(); }
     else if (action==='refresh') await refresh();
     else if (action==='close') { clearPasswords(); $('dialog').close(); $('dialog').innerHTML=''; }
     else if (action==='new-project' || action==='edit-project') projectDialog(id);
@@ -197,7 +219,7 @@ document.addEventListener('click', async event=>{
 document.addEventListener('change', async event=>{
   try {
     if (event.target.id==='language') { await loadLocale(event.target.value); shell(); if (currentView==='projects' && selectedProject) await projectDetail(selectedProject); }
-    else if (event.target.id==='workspace-selector') { workspace=event.target.value; selectedProject=''; selectedTask=''; detail=null; await refresh(); }
+    else if (event.target.id==='workspace-selector') { identityVersion++; workspace=event.target.value; selectedProject=''; selectedTask=''; detail=null; projects=[]; tasks=[]; stats={}; model={}; render(); await refresh(); }
     else if (event.target.id==='task-project') await taskEndpoints(event.target.value);
     else if (event.target.id==='provider-select') { const form=$('model-form'),provider=event.target.value; form.elements.base_url.value=provider==='deepseek'?'https://api.deepseek.com':provider==='openai'?'https://api.openai.com/v1':''; form.elements.model.value=provider==='deepseek'?'deepseek-chat':''; }
     else if (event.target.id==='openapi-file') { const file=event.target.files[0]; if (!file) return; if(file.size>1000000) throw Error(t('requestFailed')); await api(`/api/projects/${selectedProject}/openapi`,'POST',{content:await file.text()}); await projectDetail(selectedProject); toast(t('saved')); }
@@ -206,7 +228,11 @@ document.addEventListener('change', async event=>{
 window.addEventListener('hashchange', async()=>{ currentView=views.includes(location.hash.slice(1))?location.hash.slice(1):'dashboard'; render(); if(currentView==='projects' && selectedProject) await projectDetail(selectedProject).catch(e=>toast(e.message)); });
 await loadLocale(preferredLocale());
 currentView=views.includes(location.hash.slice(1))?location.hash.slice(1):'dashboard';
-try { me=await api('/api/auth/me'); csrf=me.csrf_token; workspace=me.workspace_id; } catch {}
+// Establish CSRF before an automatic refresh on a returning browser session.
+try { const result=await fetch('/api/auth/me',{credentials:'same-origin'}); if(result.ok) { me=await result.json(); csrf=me.csrf_token; workspace=me.workspace_id; } else {
+  const bootstrap=await fetch('/api/auth/csrf',{credentials:'same-origin'});
+  if(bootstrap.ok) { csrf=(await bootstrap.json()).csrf_token; me=await api('/api/auth/me'); workspace=me.workspace_id; }
+} } catch { resetIdentity(); }
 shell();
 if (me) await refresh().catch(error=>toast(error.message));
 setInterval(async()=>{

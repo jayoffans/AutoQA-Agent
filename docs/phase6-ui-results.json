@@ -1,0 +1,12 @@
+{
+  "browser": "Chromium",
+  "production_login_page": "passed",
+  "registration": "passed",
+  "empty_workspace": "passed",
+  "create_project": "passed",
+  "logout": "passed",
+  "relogin_project_persisted": "passed",
+  "second_user_isolation": "passed",
+  "mobile_logout": "passed",
+  "page_errors": []
+}

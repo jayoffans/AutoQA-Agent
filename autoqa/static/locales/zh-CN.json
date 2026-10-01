@@ -1,4 +1,6 @@
 {
+  "platformTitle": "AI 软件测试平台", "nickname": "昵称", "welcomeBack": "欢迎回来",
+  "currentWorkspace": "当前 Workspace", "sessionExpired": "登录已过期，请重新登录",
   "dashboard": "工作台", "projects": "项目", "tasks": "测试任务", "workflow": "执行流程",
   "findings": "问题发现", "reports": "测试报告", "model": "模型服务", "workspace": "工作区",
   "personal": "个人工作区", "logout": "退出登录", "login": "登录", "register": "注册",

@@ -11,7 +11,7 @@ class Input(BaseModel):
 
 class Credentials(Input):
     email: str = Field(min_length=5, max_length=254)
-    password: str = Field(min_length=10, max_length=128, repr=False)
+    password: str = Field(min_length=1, max_length=128, repr=False)
 
     @field_validator("email")
     @classmethod
@@ -19,7 +19,25 @@ class Credentials(Input):
         value = value.strip().lower()
         if "@" not in value or " " in value:
             raise ValueError("Invalid email")
+        local, _, domain = value.partition("@")
+        if not local or not domain or "@" in domain or any(c.isspace() for c in value):
+            raise ValueError("Invalid email")
         return value
+
+
+class Registration(Credentials):
+    password: str = Field(min_length=10, max_length=128, repr=False)
+    # Optional for Phase 5 clients; the product UI asks for a nickname.
+    nickname: str = Field(default="", max_length=60)
+
+    @field_validator("nickname")
+    @classmethod
+    def trim_nickname(cls, value):
+        return value.strip()
+
+
+class RefreshToken(Input):
+    refresh_token: str | None = Field(default=None, min_length=1, max_length=4096, repr=False)
 
 
 class ModelConfig(Input):

@@ -19,10 +19,11 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from .auth import ACCESS_SECONDS, REFRESH_SECONDS, CurrentUser, Tokens, current_user, user_info
 from .checkpoints import SQLCheckpointSaver
 from .contracts import parse_contract
 from .crypto import SecretBox, check_password, hash_password, scrub, token_hash
@@ -46,6 +47,8 @@ from .product_schemas import (
     ModelConfig,
     ProductProject,
     RealTask,
+    RefreshToken,
+    Registration,
 )
 from .providers import ProviderError
 from .reports import report_html, report_metrics
@@ -61,6 +64,8 @@ ROOT = Path(__file__).parent
 
 def create_product_app(settings):
     box = SecretBox(settings.secret_key)
+    tokens = Tokens(settings.secret_key)
+    dummy_hash = hash_password("autoqa-invalid-account-timing")
 
     @asynccontextmanager
     async def lifespan(app):
@@ -96,6 +101,17 @@ def create_product_app(settings):
     def csrf(raw):
         return hmac.new(settings.secret_key.encode(), raw.encode(), hashlib.sha256).hexdigest()
 
+    def clear_session_config(session_hash):
+        for key in list(app.state.gateway.session_configs):
+            if key[0] == session_hash:
+                app.state.gateway.session_configs.pop(key, None)
+
+    def cookie_csrf(request, session_hash):
+        raw = request.cookies.get("autoqa_session", "")
+        if (not raw or token_hash(raw) != session_hash or not hmac.compare_digest(
+                request.headers.get("x-csrf-token", ""), csrf(session_hash))):
+            raise HTTPException(403, "请刷新页面后重试")
+
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, error):
         return JSONResponse({"detail": "请求格式不正确，请检查必填字段"}, status_code=422)
@@ -116,32 +132,39 @@ def create_product_app(settings):
                         return JSONResponse({"detail": "请求过大"}, status_code=413)
                 request._body = bytes(body)
             if request.url.path.startswith("/api/") and request.url.path not in {
-                    "/api/health", "/api/auth/register", "/api/auth/login"}:
-                raw = request.cookies.get("autoqa_session", "")
-                if not re.fullmatch(r"[a-f0-9]{64}", raw):
-                    return JSONResponse({"detail": "请先登录"}, status_code=401)
-                hashed = token_hash(raw)
+                    "/api/health", "/api/auth/register", "/api/auth/login", "/api/auth/refresh", "/api/auth/logout",
+                    "/api/auth/csrf"}:
+                authorization = request.headers.get("authorization", "")
+                if authorization:
+                    scheme, _, raw = authorization.partition(" ")
+                    if scheme.lower() != "bearer":
+                        raise HTTPException(401, "请先登录")
+                else:
+                    raw = request.cookies.get("autoqa_access", "")
+                claims = tokens.decode(raw, "access")
+                hashed = claims["sid"]
                 with Session(app.state.store.engine) as session:
-                    saved = session.get(SessionRow, hashed)
-                    if not saved or saved.expires_at.replace(tzinfo=timezone.utc) <= now():
-                        # Expired sessions lose all volatile credentials as well.
-                        for key in list(app.state.gateway.session_configs):
-                            if key[0] == hashed:
-                                app.state.gateway.session_configs.pop(key, None)
-                        return JSONResponse({"detail": "登录已过期"}, status_code=401)
-                    user = session.get(UserRow, saved.user_id)
-                    members = list(session.scalars(select(MemberRow).where(MemberRow.user_id == user.id)))
+                    try:
+                        user, _ = tokens.identity(session, claims)
+                    except HTTPException:
+                        clear_session_config(hashed)
+                        raise
+                    members = list(session.scalars(select(MemberRow).where(MemberRow.user_id == user.id)
+                        .order_by(MemberRow.created_at, MemberRow.workspace_id)))
                     workspace = request.headers.get("x-workspace-id") or (members[0].workspace_id if members else None)
                     member = next((m for m in members if m.workspace_id == workspace), None)
                     if not member:
                         return JSONResponse({"detail": "工作区不存在"}, status_code=404)
                     request.state.user_id, request.state.workspace_id = user.id, workspace
                     request.state.email, request.state.role = user.email, member.role
-                    request.state.session_hash, request.state.csrf = hashed, csrf(raw)
-                if request.method not in {"GET", "HEAD", "OPTIONS"} and not hmac.compare_digest(
-                        request.headers.get("x-csrf-token", ""), csrf(raw)):
-                    return JSONResponse({"detail": "请刷新页面后重试"}, status_code=403)
+                    request.state.session_hash, request.state.csrf = hashed, csrf(hashed)
+                    request.state.current_user = CurrentUser(user.id, user.email, user.nickname, workspace,
+                        member.role, hashed, claims["exp"])
+                if not authorization and request.method not in {"GET", "HEAD", "OPTIONS"}:
+                    cookie_csrf(request, hashed)
             response = await call_next(request)
+        except HTTPException as error:
+            response = JSONResponse({"detail": error.detail}, status_code=error.status_code)
         except Exception:
             # Never interpolate request bodies, headers, URLs, credentials or exception messages.
             response = JSONResponse({"detail": "服务暂时不可用，请稍后重试"}, status_code=500)
@@ -210,70 +233,144 @@ def create_product_app(settings):
         return {"status": "ok", "version": "2.0.0", "mode": "production", "demo_mode": False,
                 "authentication_required": True, "model_enabled": False, "byok_required": True}
 
-    def sign_in(response, user_id):
+    def set_tokens(response, pair, expires_at, raw=None):
+        options = {"httponly": True, "secure": settings.env == "production" or settings.studio_url.startswith("https://"),
+                   "samesite": "strict"}
+        remaining = max(0, int((expires_at - now()).total_seconds()))
+        response.set_cookie("autoqa_access", pair["access_token"], max_age=ACCESS_SECONDS, **options)
+        response.set_cookie("autoqa_refresh", pair["refresh_token"], max_age=remaining, path="/api/auth", **options)
+        if raw:
+            response.set_cookie("autoqa_session", raw, max_age=remaining, **options)
+
+    def sign_in(session, response, user):
         raw = secrets.token_hex(32)
-        with Session(app.state.store.engine) as session:
-            session.add(SessionRow(token_hash=token_hash(raw), user_id=user_id, expires_at=now() + timedelta(hours=12)))
-            session.commit()
-        response.set_cookie("autoqa_session", raw, httponly=True,
-            secure=settings.env == "production" or settings.studio_url.startswith("https://"), samesite="strict", max_age=43200)
-        return {"csrf_token": csrf(raw)}
+        hashed = token_hash(raw)
+        expires_at = now() + timedelta(seconds=REFRESH_SECONDS)
+        pair = tokens.pair(user.id, hashed, expires_at)
+        session.add(SessionRow(token_hash=hashed, user_id=user.id, expires_at=expires_at,
+                              refresh_token_hash=token_hash(pair["refresh_token"])))
+        session.commit()
+        set_tokens(response, pair, expires_at, raw)
+        return {**pair, "user": user_info(user), "csrf_token": csrf(hashed)}
 
     @app.post("/api/auth/register", status_code=201)
-    def register(data: Credentials, response: Response, request: Request):
+    def register(data: Registration, response: Response, request: Request):
         rate_limit(request)
         user_id, workspace_id = str(uuid4()), str(uuid4())
         try:
             with Session(app.state.store.engine) as session:
-                session.add(UserRow(id=user_id, email=data.email, password_hash=hash_password(data.password)))
-                session.add(WorkspaceRow(id=workspace_id, name="个人工作区"))
+                user = UserRow(id=user_id, email=data.email, password_hash=hash_password(data.password),
+                    nickname=data.nickname or data.email.split("@")[0][:60])
+                session.add(user)
+                session.flush()
+                session.add(WorkspaceRow(id=workspace_id, name=data.nickname + "的工作空间" if data.nickname else "个人工作区",
+                                         owner_id=user_id))
                 session.flush()
                 session.add(MemberRow(workspace_id=workspace_id, user_id=user_id, role="owner"))
-                session.commit()
+                return sign_in(session, response, user)
         except IntegrityError:
             raise HTTPException(409, "无法注册此账号，请尝试登录") from None
-        return sign_in(response, user_id)
 
     @app.post("/api/auth/login")
     def login(data: Credentials, response: Response, request: Request):
         rate_limit(request)
         with Session(app.state.store.engine) as session:
             user = session.scalar(select(UserRow).where(UserRow.email == data.email))
-            hashed = user.password_hash if user else hash_password("dummy-password")
+            hashed = user.password_hash if user else dummy_hash
             valid = check_password(data.password, hashed)
-            if not user or not valid:
+            if not user or not valid or not user.is_active:
                 raise HTTPException(401, "邮箱或密码不正确")
-            return sign_in(response, user.id)
+            if len(user.password_hash.split("$")) == 3:
+                user.password_hash = hash_password(data.password)
+            return sign_in(session, response, user)
+
+    def refresh_identity(data, request, session):
+        explicit = data is not None and data.refresh_token is not None
+        raw = data.refresh_token if explicit else request.cookies.get("autoqa_refresh", "")
+        claims = tokens.decode(raw, "refresh")
+        if not explicit:
+            cookie_csrf(request, claims["sid"])
+        user, saved = tokens.identity(session, claims)
+        if not hmac.compare_digest(saved.refresh_token_hash, token_hash(raw)):
+            raise HTTPException(401, "登录已过期，请重新登录")
+        return user, saved, raw
+
+    @app.get("/api/auth/csrf")
+    def csrf_bootstrap(request: Request):
+        # Same-origin, read-only bootstrap for pages reopened after access-cookie expiry.
+        raw = request.cookies.get("autoqa_refresh", "")
+        claims = tokens.decode(raw, "refresh")
+        with Session(app.state.store.engine) as session:
+            _, saved = tokens.identity(session, claims)
+            if not hmac.compare_digest(saved.refresh_token_hash, token_hash(raw)):
+                raise HTTPException(401, "请先登录")
+        return {"csrf_token": csrf(claims["sid"])}
+
+    @app.post("/api/auth/refresh")
+    def refresh(response: Response, request: Request, data: RefreshToken | None = None):
+        rate_limit(request)
+        with Session(app.state.store.engine) as session:
+            user, saved, raw = refresh_identity(data, request, session)
+            expires_at = saved.expires_at.replace(tzinfo=timezone.utc)
+            pair = tokens.pair(user.id, saved.token_hash, expires_at)
+            # Compare-and-swap makes a refresh token single-use, including concurrent requests.
+            changed = session.execute(update(SessionRow).where(SessionRow.token_hash == saved.token_hash,
+                SessionRow.refresh_token_hash == token_hash(raw), SessionRow.expires_at > now())
+                .values(refresh_token_hash=token_hash(pair["refresh_token"])), execution_options={"synchronize_session": False})
+            if changed.rowcount != 1:
+                raise HTTPException(401, "登录已过期，请重新登录")
+            session.commit()
+            set_tokens(response, pair, expires_at)
+            return {**pair, "user": user_info(user), "csrf_token": csrf(saved.token_hash)}
 
     @app.get("/api/auth/me")
-    def me(request: Request):
+    def me(request: Request, identity: CurrentUser = Depends(current_user)):
         with Session(app.state.store.engine) as session:
-            workspaces = [{"id": w.id, "name": w.name, "role": m.role} for w, m in session.execute(
+            user = session.get(UserRow, identity.user_id)
+            workspaces = [{"id": w.id, "name": w.name, "owner_id": w.owner_id, "role": m.role} for w, m in session.execute(
                 select(WorkspaceRow, MemberRow).join(MemberRow).where(MemberRow.user_id == request.state.user_id))]
+            info = user_info(user)
         return {"user_id": request.state.user_id, "email": request.state.email, "workspaces": workspaces,
+                "nickname": identity.nickname, "user": info,
                 "workspace_id": request.state.workspace_id, "csrf_token": request.state.csrf}
 
     @app.post("/api/auth/logout", status_code=204)
-    def logout(request: Request, response: Response):
+    def logout(request: Request, response: Response, data: RefreshToken | None = None):
         with Session(app.state.store.engine) as session:
-            session.delete(session.get(SessionRow, request.state.session_hash))
+            authorization = request.headers.get("authorization", "")
+            if authorization:
+                scheme, _, raw = authorization.partition(" ")
+                if scheme.lower() != "bearer":
+                    raise HTTPException(401, "请先登录")
+                claims = tokens.decode(raw, "access")
+                _, saved = tokens.identity(session, claims)
+            else:
+                # Refresh-cookie authentication permits logout after the access token expires.
+                _, saved, _ = refresh_identity(data, request, session)
+            session_hash = saved.token_hash
+            session.execute(delete(SessionRow).where(SessionRow.token_hash == session_hash))
             session.commit()
-        for key in list(app.state.gateway.session_configs):
-            if key[0] == request.state.session_hash:
-                del app.state.gateway.session_configs[key]
+        clear_session_config(session_hash)
+        response.delete_cookie("autoqa_access")
+        response.delete_cookie("autoqa_refresh", path="/api/auth")
         response.delete_cookie("autoqa_session")
 
     @app.post("/api/workspace/members", dependencies=[Depends(owner)], status_code=201)
     def add_member(data: MemberInput, request: Request):
+        if data.role != "member":
+            raise HTTPException(422, "本阶段仅支持添加 Member，工作区所有者保持不变")
         with Session(app.state.store.engine) as session:
             user = session.scalar(select(UserRow).where(UserRow.email == data.email.strip().lower()))
-            if not user:
+            if not user or not user.is_active:
                 raise HTTPException(404, "用户需先注册")
             existing = session.get(MemberRow, (request.state.workspace_id, user.id))
             if existing:
                 raise HTTPException(409, "用户已加入工作区")
             session.add(MemberRow(workspace_id=request.state.workspace_id, user_id=user.id, role=data.role))
-            session.commit()
+            try:
+                session.commit()
+            except IntegrityError:
+                raise HTTPException(409, "用户已加入工作区") from None
         return {"role": data.role}
 
     @app.get("/api/provider")
@@ -612,8 +709,12 @@ def create_product_app(settings):
                 with Session(app.state.store.engine) as session:
                     saved = session.get(SessionRow, request.state.session_hash)
                     member = session.get(MemberRow, (request.state.workspace_id, request.state.user_id))
-                    if not saved or not member or saved.expires_at.replace(tzinfo=timezone.utc) <= now():
+                    user = session.get(UserRow, request.state.user_id)
+                    if (not saved or not member or not user or not user.is_active
+                            or saved.expires_at.replace(tzinfo=timezone.utc) <= now()
+                            or request.state.current_user.access_expires_at <= now().timestamp()):
                         break
+                task(task_id, request)
                 rows = app.state.store.events(task_id, cursor)
                 for item in rows:
                     cursor = item["id"]
@@ -628,9 +729,13 @@ def create_product_app(settings):
     @app.get("/api/tasks/{task_id}/artifacts/{name}")
     def artifact(task_id: str, name: str, request: Request):
         task(task_id, request)
-        directory = (settings.artifact_dir / task_id).resolve()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,200}", name):
+            raise HTTPException(404, "证据不存在")
+        root = settings.artifact_dir.resolve()
+        directory = (root / task_id).resolve()
         path = (directory / name).resolve()
-        if path.parent != directory or path.suffix not in {".png", ".json", ".html"} or not path.is_file():
+        if (directory.parent != root or directory != root / task_id or (root / task_id).is_symlink() or path.parent != directory
+                or (directory / name).is_symlink() or path.suffix not in {".png", ".json", ".html"} or not path.is_file()):
             raise HTTPException(404, "证据不存在")
         return FileResponse(path, filename=name, media_type="application/octet-stream")
 

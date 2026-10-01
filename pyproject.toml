@@ -13,7 +13,7 @@ dependencies = [
   "cryptography>=44", "playwright>=1.51,<2", "langgraph>=1.0,<2",
   "langgraph-checkpoint-sqlite>=3,<4", "httpx>=0.28,<1",
   "langfuse>=3.3,<5", "mcp>=1.9,<2",
-  "alembic>=1.16,<2", "PyYAML>=6,<7", "jsonschema>=4.23,<5"
+  "alembic>=1.16,<2", "PyYAML>=6,<7", "jsonschema>=4.23,<5", "PyJWT>=2.10.1,<3"
 ]
 
 [project.optional-dependencies]
@@ -28,7 +28,7 @@ autoqa = ["static/*", "static/locales/*", "demo/*"]
 [tool.setuptools.data-files]
 "." = ["alembic.ini"]
 "migrations" = ["migrations/env.py"]
-"migrations/versions" = ["migrations/versions/0001_legacy.py", "migrations/versions/0002_product.py"]
+"migrations/versions" = ["migrations/versions/0001_legacy.py", "migrations/versions/0002_product.py", "migrations/versions/0003_auth.py"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

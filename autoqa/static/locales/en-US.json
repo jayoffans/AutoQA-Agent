@@ -1,4 +1,6 @@
 {
+  "platformTitle": "AI Software Testing Platform", "nickname": "Nickname", "welcomeBack": "Welcome back",
+  "currentWorkspace": "Current Workspace", "sessionExpired": "Your session expired. Please sign in again.",
   "dashboard": "Dashboard", "projects": "Projects", "tasks": "Test Tasks", "workflow": "Workflow",
   "findings": "Findings", "reports": "Reports", "model": "Model Service", "workspace": "Workspace",
   "personal": "Personal workspace", "logout": "Sign out", "login": "Sign in", "register": "Register",

@@ -9,7 +9,7 @@
 3. Web 服务采用仓库 Dockerfile，启动命令 `python -m autoqa`，健康检查 `/health`。先配置下面的变量，再由维护者应用部署。
 4. 给新 Web 服务创建独立 Volume，挂载 `/app/persistent`，用于执行证据；若使用 SQLite，该目录同时保存数据库。不要引用 Demo 的数据库或 Volume。
 5. 为正式版生成独立 HTTPS 域名。`AUTOQA_PUBLIC_BASE_URL` 设置为该域名；未设置时使用 Railway 的 `RAILWAY_PUBLIC_DOMAIN`。浏览器认证 Cookie 在生产环境为 Secure。
-6. 数据库第一次启动执行 `0001_legacy → 0002_product`，只建业务结构，不创建任何 Demo 项目、任务、用户或 Finding。先备份任何已有库，迁移没有自动破坏性 downgrade。
+6. 数据库第一次启动执行 `0001_legacy → 0002_product → 0003_auth`，只建业务结构，不创建任何 Demo 项目、任务、用户或 Finding。先备份任何已有库，迁移没有自动破坏性 downgrade。Phase 5 用户及业务数据保留；原 cookie 会话需要重新登录以获得 JWT。
 7. 注册一个真实用户，检查工作台全为 0。在“模型服务”配置自己的 Provider，并以授权的测试环境做小规模验收。
 
 Railway 的环境、变量、数据库和 Volume 隔离及分支配置参见：[Environments](https://docs.railway.com/environments)、[Services](https://docs.railway.com/services)、[隔离环境指南](https://docs.railway.com/guides/isolate-staging-production)。请人工检查新服务的数据库引用，不能只依赖环境名称。
@@ -20,7 +20,7 @@ Railway 的环境、变量、数据库和 Volume 隔离及分支配置参见：[
 | --- | --- |
 | `AUTOQA_MODE` | `production`，必须明确设置 |
 | `AUTOQA_ENV` | `production` |
-| `AUTOQA_SECRET_KEY` | 随机 32 字节的 URL-safe base64；用于 AES-GCM 加密，**不是模型 Key** |
+| `AUTOQA_SECRET_KEY` | 随机 32 字节的 URL-safe base64；用于 AES-GCM，并派生独立用途的 JWT 签名密钥，**不是模型 Key** |
 | `DATABASE_URL` | 新 MySQL 的 `mysql+pymysql://...` 或独立 SQLite 路径 |
 | `AUTOQA_ARTIFACT_DIR` | `/app/persistent/artifacts` |
 | `AUTOQA_DATA_DIR` | `/app/persistent/data` |
@@ -39,7 +39,9 @@ python -c "import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_b
 
 将生成值存入部署 Secret，并另外安全备份。更换或丢失主密钥会导致已有 Provider 和环境密钥无法解密；本阶段没有自动轮换工具。
 
-正式版不要设置 `OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`AUTOQA_LLM_API_KEY` 或 `LLM_PROVIDER=mock`。即使误设，这些全局配置也不会成为 Production 模型来源。`AUTOQA_API_TOKEN` 仅保留旧开发模式兼容，正式版使用用户会话认证。
+正式版不要设置 `OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`AUTOQA_LLM_API_KEY` 或 `LLM_PROVIDER=mock`。即使误设，这些全局配置也不会成为 Production 模型来源。`AUTOQA_API_TOKEN` 仅保留旧开发模式兼容，正式版使用用户 JWT 认证。
+
+access token 为 15 分钟，refresh 为绝对 7 天，数据库只保存 refresh 哈希并在刷新时轮换。退出撤销当前会话；其他设备的会话保留。Production Cookie 要求 HTTPS，浏览器写请求要求 CSRF。新变量不是必需；继续保留原主密钥，否则已有 AES 密文无法解密且 JWT 验证会失败。限流与会话级模型配置仍依赖单副本运行。详细 API 和隔离方案见 [Authentication Architecture](../README.md#authentication-architecture)。
 
 Demo 保持 `AUTOQA_MODE=demo`、`DEMO_LLM_ENABLED=false`，使用独立数据库。未明确设置 `AUTOQA_MODE` 的旧安装保持原有行为，避免自动改变已部署 Demo；新的正式部署不能省略 `AUTOQA_MODE`。
 

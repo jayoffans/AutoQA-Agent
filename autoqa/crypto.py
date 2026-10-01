@@ -31,12 +31,26 @@ def mask_key(key):
 
 def hash_password(password, salt=None):
     salt = salt or secrets.token_hex(16)
-    derived = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=16384, r=8, p=1)
-    return "scrypt$" + salt + "$" + derived.hex()
+    # OWASP's 16 MiB scrypt profile. Parameters are stored for legacy compatibility.
+    derived = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=16384, r=8, p=5)
+    return "scrypt$16384$8$5$" + salt + "$" + derived.hex()
 
 
 def check_password(password, saved):
-    return hmac.compare_digest(hash_password(password, saved.split("$")[1]), saved)
+    try:
+        parts = saved.split("$")
+        if len(parts) == 3 and parts[0] == "scrypt":  # Phase 5 hashes
+            _, salt, digest = parts
+            n, r, p = 16384, 8, 1
+        elif len(parts) == 6 and parts[:4] == ["scrypt", "16384", "8", "5"]:
+            _, _, _, _, salt, digest = parts
+            n, r, p = 16384, 8, 5
+        else:
+            return False
+        derived = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=n, r=r, p=p)
+        return hmac.compare_digest(derived.hex(), digest)
+    except (ValueError, TypeError):
+        return False
 
 
 def token_hash(token):
