@@ -48,15 +48,20 @@ class LiveServer:
             time.sleep(0.2)
         raise RuntimeError("Test server failed to start")
 
-    def stop(self):
+    def stop(self, *, force=False):
         if self.process and self.process.poll() is None:
-            self.process.terminate()
+            if force:
+                self.process.kill()
+            else:
+                self.process.terminate()
             self.process.wait(timeout=15)
         if self.logfile:
             self.logfile.close()
 
     def restart(self):
-        self.stop()
+        # Checkpoint recovery tests simulate process failure. Windows terminate()
+        # already kills immediately; use the same crash semantics on POSIX.
+        self.stop(force=True)
         self.start()
 
 
