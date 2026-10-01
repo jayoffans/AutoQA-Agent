@@ -53,6 +53,7 @@ def redact(value, key: str = ""):
     if isinstance(value, list):
         return [redact(v, key) for v in value]
     if isinstance(value, str):
+        value = re.sub(r"\bsk-[A-Za-z0-9_-]{8,}", "[REDACTED]", value)
         value = re.sub(r"(?i)(bearer\s+)[\w.\-]+", r"\1[REDACTED]", value)
         value = re.sub(r"(?i)((?:token|password|secret|api_key)=)[^&\s]+", r"\1[REDACTED]", value)
         return re.sub(r"\b(\w+(?:\+\w+)?://[^\s/:]+:)[^@\s]+(@)", r"\1[REDACTED]\2", value)

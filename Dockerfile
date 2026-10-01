@@ -3,6 +3,8 @@ ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PLAYWRIGHT_BROWSERS_PATH=/ms-playwrigh
 WORKDIR /app
 COPY pyproject.toml requirements.lock ./
 COPY autoqa ./autoqa
+COPY alembic.ini ./
+COPY migrations ./migrations
 RUN pip install -r requirements.lock && pip install --no-deps . \
     && python -m playwright install --with-deps chromium \
     && useradd --create-home --uid 10001 autoqa \

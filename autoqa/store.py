@@ -22,6 +22,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from .config import Settings
 from .demo_guard import DemoOwnerRow, DemoQuotaRow, reserve
+from .product_models import InstallationRow  # Register identity/configuration metadata before migrations.
 from .reports import report_html, report_issues, report_metrics
 from .schemas import TERMINAL, ProjectCreate, TaskCreate
 from .security import redact
@@ -72,7 +73,7 @@ class EventRow(Base):
 
 class Store:
     def __init__(self, url: str, artifact_dir: Path | None = None,
-                 demo_url: str | None = None):
+                 demo_url: str | None = None, *, mode: str | None = None):
         database = make_url(url)
         if database.drivername.startswith("sqlite") and database.database not in {None, "", ":memory:"}:
             Path(database.database).parent.mkdir(parents=True, exist_ok=True)
@@ -85,7 +86,27 @@ class Store:
             def sqlite_constraints(connection, record):
                 connection.execute("PRAGMA foreign_keys=ON")
         self.artifact_dir = artifact_dir
-        Base.metadata.create_all(self.engine)
+        from .migrations import upgrade
+        upgrade(self.engine)
+        with Session(self.engine) as session:
+            marker = session.get(InstallationRow, 1)
+            if marker and marker.mode == "production" and mode != "production":
+                raise ValueError("Demo and Production must use separate databases; explicit production mode required")
+        if mode:
+            with Session(self.engine) as session:
+                marker = session.get(InstallationRow, 1)
+                if marker and marker.mode != mode:
+                    raise ValueError("Demo and Production must use separate databases")
+                if not marker:
+                    if mode == "production" and session.scalar(select(TaskRow.id).limit(1)):
+                        raise ValueError("Production requires a separate clean database; legacy tasks are retained")
+                    if mode == "production" and session.scalar(select(ProjectRow.id).limit(1)):
+                        raise ValueError("Production requires a separate clean database; legacy projects are retained")
+                    session.add(InstallationRow(id=1, mode=mode))
+                    session.commit()
+        self.production = mode == "production"
+        if self.production:
+            return
         self.bootstrap(demo_url or Settings(_env_file=None).studio_url + "/demo/login.html")
         with Session(self.engine) as session:
             if not session.get(DemoQuotaRow, "global"):
@@ -93,6 +114,8 @@ class Store:
                 session.commit()
 
     def create(self, request: TaskCreate, *, source=None, owner=None, settings=None) -> str:
+        if self.production and not request.project_id:
+            raise ValueError("Production tasks require an owned project")
         task_id = str(uuid4())
         with Session(self.engine) as s:
             if source is not None:
@@ -148,7 +171,7 @@ class Store:
             s.add(StepRow(task_id=task_id, index=index, attempt=attempt, result=redact(result)))
             case = s.scalar(select(CaseRow).where(CaseRow.task_id == task_id, CaseRow.step_index == index))
             if case:
-                case.status = "passed" if result["ok"] else "failed"
+                case.status = result.get("status") or ("passed" if result["ok"] else "failed")
             s.commit()
 
     def get(self, task_id: str, private: bool = False):
@@ -160,6 +183,8 @@ class Store:
                       "plan": row.plan, "diagnosis": row.diagnosis, "approval": row.approval,
                       "planner_mode": row.planner_mode, "created_at": row.created_at.isoformat(),
                       "updated_at": row.updated_at.isoformat()}
+            if self.production:
+                result["production"] = True
             result["steps"] = [dict(index=v.index, attempt=v.attempt, **v.result) for v in
                                s.scalars(select(StepRow).where(StepRow.task_id == task_id).order_by(StepRow.id))]
             meta = s.get(TaskMetadataRow, task_id)
@@ -276,6 +301,7 @@ class Store:
     @staticmethod
     def project_dict(row, counts=None):
         return {"id": row.id, "name": row.name, "description": row.description, "url": row.url,
+                "workspace_id": row.workspace_id, "project_type": row.project_type, "environment": row.environment,
                 "builtin": row.builtin, "created_at": row.created_at.isoformat(),
                 "updated_at": row.updated_at.isoformat(), **(counts or {})}
 
@@ -422,12 +448,22 @@ class Store:
         content = report_html(task)
         with Session(self.engine) as s:
             run = s.get(RunRow, task_id)
+            if self.production:
+                for case in s.scalars(select(CaseRow).where(CaseRow.task_id == task_id, CaseRow.status == "waiting")):
+                    case.status = "skipped"
             run.status = task["status"]
             run.finished_at = run.finished_at or now()
             run.passed, run.failed, run.coverage = metrics["passed"], metrics["failed"], metrics["coverage"]
             for issue in report_issues(task):
                 if not s.get(FindingRow, issue["id"]):
                     evidence = {"diagnosis": task["diagnosis"], "steps": [v for v in task["steps"] if not v["ok"]]}
+                    if self.production:
+                        evidence = {"diagnosis": task["diagnosis"], "root_cause_confirmed": False,
+                                    "steps": [v for v in task["steps"] if not v["ok"] and v.get("status") != "system_error"]}
+                        first = evidence["steps"][0] if evidence["steps"] else {}
+                        evidence.update(affected=first.get("step", {}).get("path", task["request"]["target_url"]),
+                                        expected=first.get("expected", first.get("step")),
+                                        actual=first.get("actual", first.get("error")), suggestion_label="AI 分析建议")
                     s.add(FindingRow(id=issue["id"], run_id=task_id, severity=issue["severity"],
                         title=issue["description"][:400], description=issue["description"],
                         suggestion=issue["suggestion"], evidence=redact(evidence)))

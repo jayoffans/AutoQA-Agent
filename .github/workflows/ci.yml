@@ -13,7 +13,7 @@ jobs:
           cache-dependency-path: requirements.lock
       - run: pip install -r requirements.lock && pip install --no-deps -e .
       - run: python -m playwright install --with-deps chromium
-      - run: ruff check autoqa tests scripts
+      - run: ruff check autoqa tests scripts migrations
       - run: pytest -q --junitxml=work/test-results.xml
       - uses: actions/setup-node@v4
         with:
@@ -23,6 +23,8 @@ jobs:
           node --check autoqa/static/app.js
           node --check autoqa/static/components.js
           node --check autoqa/static/studio-model.js
+          node --check autoqa/static/production.js
+          node --check autoqa/static/i18n.js
       - name: Studio browser acceptance
         env:
           LLM_PROVIDER: mock
@@ -84,8 +86,24 @@ jobs:
         env:
           AUTOQA_TEST_MYSQL_URL: mysql+pymysql://autoqa:autoqa-ci-fixture@127.0.0.1:3306/autoqa_ci
         run: pytest tests/test_database_compatibility.py -q --junitxml=work/mysql-results.xml
+      - name: Provision isolated Production test database
+        run: |
+          python - <<'PY'
+          import pymysql
+          connection = pymysql.connect(host='127.0.0.1', user='root', password='autoqa-ci-root-fixture', autocommit=True)
+          with connection.cursor() as cursor:
+              cursor.execute('CREATE DATABASE autoqa_product_ci CHARACTER SET utf8mb4')
+              cursor.execute("GRANT ALL ON autoqa_product_ci.* TO 'autoqa'@'%'")
+          connection.close()
+          PY
+      - name: Production MySQL BYOK acceptance
+        env:
+          AUTOQA_TEST_PRODUCT_MYSQL_URL: mysql+pymysql://autoqa:autoqa-ci-fixture@127.0.0.1:3306/autoqa_product_ci
+        run: pytest tests/test_product_mysql.py -q --junitxml=work/mysql-product-results.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: mysql-results
-          path: work/mysql-results.xml
+          path: |
+            work/mysql-results.xml
+            work/mysql-product-results.xml

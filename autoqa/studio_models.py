@@ -11,6 +11,9 @@ from .store_base import Base, now
 class ProjectRow(Base):
     __tablename__ = "projects"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id"), nullable=True, index=True)
+    project_type: Mapped[str] = mapped_column(String(16), default="web", server_default="web")
+    environment: Mapped[str] = mapped_column(String(80), default="staging", server_default="staging")
     name: Mapped[str] = mapped_column(String(80))
     description: Mapped[str] = mapped_column(Text, default="")
     url: Mapped[str] = mapped_column(String(2000))

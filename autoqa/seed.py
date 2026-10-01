@@ -18,6 +18,8 @@ SEED_TASK_ID = str(uuid5(NAMESPACE_URL, "autoqa/public/authentication-regression
 
 
 async def seed_demo(store, settings, app):
+    if settings.mode == "production" or store.production:
+        raise ValueError("Demo seed is forbidden in Production")
     with Session(store.engine) as session:
         exists = session.get(TaskRow, SEED_TASK_ID) is not None
         has_tasks = session.scalar(select(TaskRow.id).limit(1)) is not None

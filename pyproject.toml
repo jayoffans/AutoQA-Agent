@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autoqa-agent"
-version = "1.0.0"
+version = "2.0.0"
 description = "Checkpointed browser testing and evidence-based failure diagnosis"
 requires-python = ">=3.11"
 dependencies = [
@@ -12,7 +12,8 @@ dependencies = [
   "pydantic-settings>=2.7,<3", "sqlalchemy>=2.0,<3", "pymysql>=1.1,<2",
   "cryptography>=44", "playwright>=1.51,<2", "langgraph>=1.0,<2",
   "langgraph-checkpoint-sqlite>=3,<4", "httpx>=0.28,<1",
-  "langfuse>=3.3,<5", "mcp>=1.9,<2"
+  "langfuse>=3.3,<5", "mcp>=1.9,<2",
+  "alembic>=1.16,<2", "PyYAML>=6,<7", "jsonschema>=4.23,<5"
 ]
 
 [project.optional-dependencies]
@@ -22,7 +23,12 @@ dev = ["pytest>=8,<10", "pytest-asyncio>=0.25,<2", "ruff>=0.11,<1"]
 include = ["autoqa*"]
 
 [tool.setuptools.package-data]
-autoqa = ["static/*", "demo/*"]
+autoqa = ["static/*", "static/locales/*", "demo/*"]
+
+[tool.setuptools.data-files]
+"." = ["alembic.ini"]
+"migrations" = ["migrations/env.py"]
+"migrations/versions" = ["migrations/versions/0001_legacy.py", "migrations/versions/0002_product.py"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

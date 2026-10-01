@@ -1,164 +1,103 @@
 # AutoQA Studio
 
-**AI-powered Software Quality Engineering Platform**
-
-将测试需求、计划审核、受控执行、运行证据和质量报告组织成可追踪的工作流。
+面向真实 Web / API 项目的 AI 软件测试工作区：解析需求、生成计划、人工审核、受控执行、保留证据与报告。
 
 [![Browser QA CI](https://github.com/jayoffans/AutoQA-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/jayoffans/AutoQA-Agent/actions/workflows/ci.yml)
 
-[60 秒 Demo](docs/demo-script.md) · [部署指南](docs/deployment.md) · [Phase 3 验证](docs/phase3.md) · [API 与本地使用](docs/usage.md)
+**AutoQA 不提供模型额度。真实模型请求由用户自行配置 Provider API Key，费用计入用户自己的 Provider 账号。**
 
-Live Demo: [AutoQA Studio](https://autoqa-studio-production.up.railway.app)
+[Production 部署](docs/production-deployment.md) · [Phase 5 验收与限制](docs/phase5.md) · [旧版使用文档](docs/usage.md)
 
-![Dashboard](docs/assets/dashboard.png)
+## Live Demo
 
-公开 Demo 默认关闭真实 LLM，使用 MockProvider 生成计划，再执行内置认证接口。页面数据来自后端数据库；截图来自真实浏览器验收实例。
+[公开体验 AutoQA Studio](https://autoqa-studio-production.up.railway.app/)
 
-**MySQL runtime verified on Railway**：已验证私网 MySQL 连接及 Web 重启持久化，Project、Task、Workflow、Finding、Report 和证据文件均保留；待审批计划可在重启后继续执行。
+Demo 使用 `AUTOQA_MODE=demo`，MockProvider 生成测试计划，执行内置 Login API 真实 HTTP fixture。示例故意接受错误密码，得到 6 个用例、5 个通过、1 个失败。示例 Finding 与报告仅用于 Demo，不代表正式用户的测试结果。
 
-## Demo Scenario
+现有线上 Demo 本轮没有部署、清空或修改。Git 历史和测试 fixture 保留。
 
-**Login API Quality Demo → Authentication Regression Test**
+## Production Use
 
-六类认证契约：正确登录、错误密码、缺少用户名、缺少密码、非法 JSON、未授权访问。内置服务故意接受错误密码，以展示可复核的失败证据。
+正式部署必须明确设置 `AUTOQA_MODE=production`，并连接**新的独立数据库**。第一次打开为登录 / 注册入口；注册自动创建个人工作区，项目、任务、问题和执行数全部为 0。
 
-| 结果 | 数值 |
-| --- | --- |
-| Test cases | 6 |
-| Passed / Failed | 5 / 1 |
-| High-severity findings | 1 |
-| Planned Assertion Execution Coverage | 100% |
+用户流程：
 
-**Execution Coverage = 已执行的计划断言 / 全部计划断言。它不是代码覆盖率，也不表示所有需求都已覆盖。**
+1. 创建 Web 或 API 项目，设置测试环境及 Base URL。
+2. 在“模型服务”选择 DeepSeek、OpenAI 或 OpenAI-compatible Provider，测试连接并保存用户自己的密钥。
+3. API 项目导入 OpenAPI URL / JSON / YAML，或手动配置接口并选择操作；Web 项目输入目标 URL 和自然语言目标。
+4. 检查 AI 计划的测试目标、范围、前置条件、输入和预期结果；修改、增删用例或重新生成。
+5. 人工批准后执行，查看每个用例的预期 / 实际、状态、耗时、证据、问题与历史报告。
 
-Phase 2 已验证真实 DeepSeek 规划、人工审核和网络 HTTP 执行，得到上述结果；可复核 [真实模型记录](docs/phase2-llm-results.json) 与 [Phase 2 报告](docs/phase2.md)。公开 Demo 与启动种子使用 Mock 规划和本地 ASGI 接口执行，证据中标注来源，不声称是本次真实模型调用。
+默认生产操作界面为简体中文，支持 English 切换；文案集中在 `autoqa/static/locales/zh-CN.json` 与 `en-US.json`。服务端错误和导出 HTML 报告目前主要使用中文。旧公开 Demo 界面保持兼容。
 
-![Test report](docs/assets/report.png)
+用户、Workspace 与 Owner / Member 关系持久化；每个项目属于一个工作区，任务及 Workflow / Finding / Report / Artifact 通过项目继承访问范围。修改 URL / ID 或 `X-Workspace-ID` 不能跨工作区访问数据。Owner 管理模型配置和成员，Member 可以协作测试。
 
-## Workflow
+没有模型配置时显示“尚未配置模型服务”。Production 不读取全局开发者模型 Key，不回退 Mock。模型认证 / 额度 / 网络错误作为执行错误保留，不伪装成业务断言失败。
 
-Requirement Analyzer → Test Planner → Schema Validation → Human Review → Execution Agent → Failure Analyzer → Report Generator。
-
-先检查计划的六类场景和预期状态，再批准执行。Workflow 保存每个阶段的状态、输入输出和时间；Finding 引用预期 / 实际 HTTP 响应。API 审批计划可以在重启后继续，浏览器中途会话丢失后需要新任务。
-
-![Agent workflow](docs/assets/workflow.png)
-
-## Architecture
+## BYOK Architecture
 
 ```mermaid
-flowchart LR
-  UI[Studio Dashboard] --> API[FastAPI]
-  API --> Guard[Demo Quota / Ownership]
-  Guard --> Runner[Runner / Timeout / Cancellation]
-  Runner --> Planner[Provider Adapter]
-  Planner --> Schema[Pydantic Schema Validation]
-  Schema --> Review[Human Review]
-  Review --> Executor[Playwright Browser / HTTP API]
-  Executor --> Verify[Assertions / Evidence]
-  Verify --> Finding[Failure Analyzer]
-  Finding --> Report[HTML / JSON Report]
-  API --> DB[(SQLAlchemy SQLite / MySQL)]
-  Runner --> Graph[LangGraph / Persistent Checkpoints]
-  Graph --> DB
-  Verify --> Artifacts[Relative Evidence Paths]
+flowchart TD
+    User[User] --> Workspace[Workspace]
+    Workspace --> Config[Encrypted Provider Config]
+    Config --> Gateway[Provider Gateway]
+    Gateway --> Model[User's Model Account]
 ```
 
-SQLite 使用本地 checkpoint 文件；MySQL 使用 SQLAlchemy 图检查点表。业务数据、配额、报告均持久化。当前调度器和活动浏览器位于单进程中，部署使用一个 worker / replica。
+`AUTOQA_SECRET_KEY` 是随机 32 字节的服务端主密钥。用户模型 Key 用 **AES-256-GCM** 加密后存入 `encrypted_api_key`，随机 nonce 和绑定工作区的 associated data 防止密文交换。页面只收到 `sk-••••••••1234`，无法取回完整 Key。更换 Key 时提交新密钥；删除配置可以清除密文。
 
-## Features
+支持两种模型配置保存方式：
 
-- Dashboard、Projects、Test Tasks、Agent Workflow、Findings 与 Report。
-- Provider Adapter 支持 OpenAI、DeepSeek、兼容接口和 Mock；真实 provider 失败不自动切换 Mock。
-- 浏览器导航、输入、点击、断言、截图和 Trace；受控 API 六场景契约测试。
-- 人工计划 / 关键步骤审核、任务取消、限次只读重试、超时和并发限制。
-- 服务端项目、案例、执行结果、Workflow、Finding 和报告持久化。
-- 空任务库自动初始化标准 Demo，固定种子 ID，重复启动不新增重复数据。
+- **仅本次会话**：加密配置只存在当前服务进程内存，绑定用户登录会话与工作区，退出 / 过期 / 重启后不可使用。
+- **保存到工作区**：数据库保存加密配置，工作区成员共享模型服务，费用计入该工作区配置的 Provider 账号。
 
-![Projects](docs/assets/projects.png)
+密钥解密只在 Provider 请求局部使用，完成后清除对象中的引用；这不是对 Python 内存的物理擦除保证。Provider Gateway 使用用户提供的 Base URL / Model / Key，不配置免费真实模型额度。
 
-## Engineering Highlights
+环境认证 Header、Token、Password、自定义敏感变量及保存的测试账号也通过 AES-GCM 加密。计划只保存 `{{TOKEN}}` / `{{USERNAME}}` / `{{PASSWORD}}` 等占位符。临时账号仅本次任务使用，任务完成后清除内存密文。已知秘密会从输出、日志、DOM 与响应证据中移除。Production 禁用 Playwright Trace；配置运行变量时不保存截图，避免目标页面把密码回显到图像中。
 
-| 工程点 | 实现与验证 |
-| --- | --- |
-| Provider Adapter | API 调用与执行分离；Mock 只规划，不虚构执行结果 |
-| Schema Validation | 强制六类 API 场景、契约状态码和浏览器显式断言 |
-| Human Review | 审核完整计划和敏感步骤，拒绝时保留历史 |
-| Persistent Workflow | 阶段输入输出、UTC 时间、图检查点、重启恢复语义 |
-| Evidence-based Findings | HTTP 预期 / 实际状态、浏览器事件与证据；根因标记待确认 |
-| SQLite / MySQL | 方言转换、事务、JSON、Boolean、外键、LONGTEXT 与配额行写锁 |
-| CI | Ubuntu pytest、Ruff、JS 语法、浏览器验收及 MySQL 服务 job |
-| Browser Verification | 原有 12 项 UI 验收，加公开 Demo 的 8 项浏览器检查 |
-| Docker Deployment | Linux 镜像、非 root 用户、动态 PORT、独立健康检查 |
+## Testing Architecture
 
-## Tech Stack
+保留 FastAPI、SQLAlchemy、LangGraph 和 Playwright。Production 复用既有浏览器工作流、执行器、Store 和报告系统，为 API 项目加入通用接口执行器。
 
-Python 3.11+ · FastAPI · Uvicorn · Pydantic · SQLAlchemy · PyMySQL · LangGraph · HTTPX · Playwright / Chromium · 原生 HTML / CSS / JavaScript · pytest · Ruff · GitHub Actions · Docker。
+API 支持 OpenAPI 3.x / Swagger 2.0 的 path、method、parameters、JSON request body、response schema 和本地 `$ref`，不再限定 Login API。远程 / 循环引用需预先打包；当前不是完整的 OpenAPI 兼容性实现，不支持 multipart、OAuth 自动取令牌、递归 schema 和任意复杂 JSON Schema 方言。
 
-依赖范围见 [pyproject.toml](pyproject.toml)，锁定安装依赖见 [requirements.lock](requirements.lock)。Chrome DevTools MCP / Langfuse 可选，本地使用说明见 [docs/usage.md](docs/usage.md)；公开 Demo 禁用 MCP。
+Web 测试观察用户真实页面、规划可审核动作、执行断言并保存证据。任务不会默认指向 AutoQA 页面。生产模式所有计划，包括只读断言，都必须人工批准；关键步骤可以继续单独审批。多用例 Web Suite、自动浏览器登录发现与复杂跨域业务流程尚未完善。
 
-## Testing
+业务失败来自实际执行断言。系统 / Agent / 网络异常记为 `system_error`。Finding 显示受影响目标、预期、实际和证据；修复提示标注“AI 分析建议”，`root_cause_confirmed=false`。当前故障归类和提示仍包含规则逻辑，不能视为已证实的后端根因。
 
-Phase 2 基线：**37 automated tests passed · 12 browser UI checks passed**。
+公网目标采用 HTTP(S) 检查、DNS 解析、公网 IP 校验和连接 IP 固定，校验重定向并限制响应大小。默认禁止 localhost、私有 IP、link-local、metadata、file URL、任意 shell / 脚本动作与服务器文件访问。自托管允许内网需要显式 opt-in；metadata IP 始终禁止。运行测试须使用已获授权的环境和测试账号。
 
-Phase 3 结果见 [验证报告](docs/phase3.md)：新增生产安全、配额并发、种子幂等、健康检查、MySQL URL / DDL 和图检查点恢复测试。浏览器检查覆盖 390 / 768 / 1440 px，并保存真实产品截图。MySQL runtime 的本机跳过记录不会被计为通过；新增 CI MySQL job 的结果需在实际运行后确认。
+## Database Migrations
+
+Alembic 替代仅依赖 `create_all` 的建表方式：
+
+- `0001_legacy`：识别并补齐旧结构，不删除旧行。
+- `0002_product`：users、workspaces、workspace_members、user_sessions、provider_configs、environment_configs、api_contracts、deployment mode marker，以及项目 ownership / 类型 / 环境字段。
+
+旧项目保持 `workspace_id=NULL`，不会自动分配给新用户。数据库模式标记阻止 Demo / Production 复用数据库；正式模式拒绝接管旧 Demo 业务库。迁移前备份；没有自动破坏性 downgrade。
+
+## Self-hosting
 
 ```bash
-pytest -q
-ruff check autoqa tests scripts
-node --check autoqa/static/app.js
-node --check autoqa/static/components.js
-node --check autoqa/static/studio-model.js
-python scripts/validate_production.py
-python scripts/validate_deployment.py
-python scripts/verify_phase3.py
-python scripts/audit_secrets.py
-```
-
-## Deployment
-
-Railway 从 GitHub 使用仓库根 Dockerfile 构建，启动命令 **`python -m autoqa`**。ASGI server 读取 `HOST=0.0.0.0` 和平台 `PORT`。`GET /health` 返回 `{"status":"ok"}`，不依赖 LLM。Docker / Railway 配置已检查，本轮没有实际部署。
-
-公开部署：`AUTOQA_ENV=production`、`DEMO_MODE=true`、`DEMO_LLM_ENABLED=false`、`DEMO_DAILY_LIMIT=20`、`DEMO_IP_LIMIT=3`；配置 `DATABASE_URL` 为 Railway MySQL 引用。MySQL 业务数据与图检查点保存在数据库中，证据目录仍需持久卷。SQLite 还需持久化数据库和检查点文件。
-
-完整环境变量、卷权限、手动步骤和已知限制见 [Railway 部署指南](docs/deployment.md)。
-
-## Security
-
-公开用户可以浏览标准示例、创建有限数量的内置 API 任务、审核自身计划并查看 Workflow / Finding / Report。系统种子只读；不开放外部目标、任意步骤、项目修改、Provider 密钥编辑、调试接口、shell、文件浏览或原始 artifact 下载。
-
-全局与来源额度在同一数据库事务中扣减，取消、失败和重启不退还额度，UTC 次日重置。访客归属使用随机 HttpOnly / Secure / SameSite cookie。来源使用 socket peer，忽略用户可伪造的转发头；反向代理后的访客可能共享来源额度。这是有限规模展示，不提供多租户或抗 DDoS 保证。
-
-生产模式关闭 Debug 和 OpenAPI 调试页面；错误与日志不输出密钥、内部异常文本或服务端文件路径。Git / Docker 忽略 `.env`、数据库和日志。当前可达 Git 历史未检测到已知本地密钥或常见真实 token；检查范围与局限见 [Phase 3 报告](docs/phase3.md)。
-
-## Quick Start
-
-### Linux / macOS
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
 pip install -r requirements.lock
 pip install --no-deps -e .
-python -m playwright install --with-deps chromium
-LLM_PROVIDER=mock python -m autoqa
+python -m playwright install chromium
+# 设置 .env：production 模式、主密钥、独立数据库、HTTPS 域名
+python -m alembic upgrade head
+python -m autoqa
 ```
 
-默认开发模式监听端口 8765。若需要本地体验公开限制和种子数据：
+Docker 与 Railway 环境变量、Volume、数据库及 HTTPS 配置见 [正式版部署指南](docs/production-deployment.md)。不要复制开发者模型 Key。当前要求单进程 / 单副本；临时配置和运行队列不能跨进程共享。
+
+## Verification
 
 ```bash
-AUTOQA_ENV=production DEMO_MODE=true DEMO_LLM_ENABLED=false python -m autoqa
+ruff check autoqa tests scripts migrations
+pytest -q --junitxml=work/test-results.xml
+node --check autoqa/static/production.js
+node --check autoqa/static/i18n.js
 ```
 
-正式公网生产应通过 HTTPS 访问，以便 Secure 访客 cookie 正常工作。本地 development 可用 `DEMO_MODE=true` 体验完整页面；HTTPS 生产浏览器验证脚本会创建一次性证书与隔离数据库。
+保留旧浏览器、Demo、报告、代理限额与数据库测试。新增空 Production、用户 / 工作区 / 对象隔离、BYOK、加密、掩码、无回退、OpenAPI、环境秘密、Alembic 和真实 Chromium 验收。CI 仅使用 fixture Key 和 Mock HTTP，不产生真实模型费用；MySQL 使用独立的 Demo 与 Production 测试数据库。
 
-### Windows
-
-本地运行 `start.cmd -Setup` 首次安装，之后运行 `start.cmd`。手动方式使用 `.venv\Scripts\python.exe -m autoqa`；启动脚本仅用于本地，不参与 Railway 生产启动。
-
-### Seed
-
-```bash
-python scripts/seed_demo.py
-```
-
-种子脚本和公开 Demo 的首次启动共用同一实现。非空任务库不批量插入示例；已有种子重复启动只校验 / 补全报告。它使用受控缺陷 fixture 实际计算结果，而不是把计数写在前端 JavaScript 中。
+完整结果、未实际验收项目和上线前缺项见 [Phase 5 报告](docs/phase5.md)。

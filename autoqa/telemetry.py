@@ -8,9 +8,9 @@ log = logging.getLogger(__name__)
 
 
 class Telemetry:
-    def __init__(self):
+    def __init__(self, enabled=True):
         self.client = None
-        if os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"):
+        if enabled and os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"):
             from langfuse import get_client
             self.client = get_client()
 
