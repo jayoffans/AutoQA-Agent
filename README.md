@@ -8,9 +8,13 @@
 
 [60 秒 Demo](docs/demo-script.md) · [部署指南](docs/deployment.md) · [Phase 3 验证](docs/phase3.md) · [API 与本地使用](docs/usage.md)
 
+Live Demo: [AutoQA Studio](https://autoqa-studio-production.up.railway.app)
+
 ![Dashboard](docs/assets/dashboard.png)
 
-公开 Demo 默认关闭真实 LLM，使用 MockProvider 生成计划，再执行内置认证接口。页面数据来自后端数据库；截图来自真实浏览器验收实例。尚未发布 Railway 公共地址。
+公开 Demo 默认关闭真实 LLM，使用 MockProvider 生成计划，再执行内置认证接口。页面数据来自后端数据库；截图来自真实浏览器验收实例。
+
+**MySQL runtime verified on Railway**：已验证私网 MySQL 连接及 Web 重启持久化，Project、Task、Workflow、Finding、Report 和证据文件均保留；待审批计划可在重启后继续执行。
 
 ## Demo Scenario
 
