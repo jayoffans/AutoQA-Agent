@@ -3,7 +3,8 @@ import zipfile
 from io import BytesIO
 
 import pytest
-from conftest import create, wait_task
+
+from tests.conftest import create, wait_task
 
 
 @pytest.mark.parametrize("page,goal,status,category", [
