@@ -188,6 +188,7 @@ class ProductionService:
         self.log = (self.directory / "service.log").open("ab")
         self.process = subprocess.Popen([sys.executable, "-m", "uvicorn", "autoqa.app:app", "--host", "127.0.0.1",
             "--port", str(self.port), "--ssl-keyfile", str(self.key), "--ssl-certfile", str(self.cert),
+            "--timeout-keep-alive", "1", "--timeout-graceful-shutdown", "5",
             "--no-access-log", "--log-level", "error"], cwd=self.directory, env=self.env,
             stdout=self.log, stderr=self.log)
         deadline = time.monotonic() + 30
@@ -203,11 +204,18 @@ class ProductionService:
         raise AssertionError("Production service failed to become healthy")
 
     def stop(self):
-        if self.process and self.process.poll() is None:
-            self.process.terminate()
-            self.process.wait(timeout=20)
-        if self.log:
-            self.log.close()
+        try:
+            if self.process and self.process.poll() is None:
+                self.process.terminate()
+                try:
+                    self.process.wait(timeout=20)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait(timeout=5)
+                    raise AssertionError("Production TLS service failed graceful shutdown") from None
+        finally:
+            if self.log:
+                self.log.close()
 
     def restart(self):
         self.stop()
