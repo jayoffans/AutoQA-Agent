@@ -12,6 +12,8 @@ let apiModeProject = '', apiNotice = null;
 let plannerDetailId = '', plannerSpecId = '';
 const planningProjects = new Set();
 const executingPlans = new Set();
+const apiRunSelections = new Map();
+let apiRunRenderVersion = 0;
 const views = ['dashboard','projects','tasks','workflow','findings','reports','model'];
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => $('toast').hidden = true, 5000); }
 async function api(path, method = 'GET', body) {
@@ -41,7 +43,7 @@ function resetIdentity() {
   identityVersion++; me=null; workspace=''; csrf=''; projects=[]; tasks=[]; stats={}; model={};
   onboarding=null; providerConfigs=[];
   apiModeProject=''; apiNotice=null;
-  plannerDetailId=''; plannerSpecId='';
+  plannerDetailId=''; plannerSpecId=''; apiRunSelections.clear(); apiRunRenderVersion++;
   selectedTask=''; selectedProject=''; detail=null; currentView='dashboard'; authMode='login';
   clearPasswords(); $('dialog').close(); $('dialog').innerHTML='';
 }
@@ -232,32 +234,42 @@ async function plannerDetail(planId,projectId) {
   $('project-detail').innerHTML=`<section class="panel product-panel"><div class="progress-heading"><h2>${text('plannerDetail')}</h2>${button('plannerBack','api-testing',projectId)}</div><p><span class="badge ${esc(plan.status)}">${text('plannerStatus_'+plan.status)}</span> · ${esc(plan.provider)} · ${esc(plan.model)}</p><p>${text('plannerCaseCount')}: ${plan.case_count} · ${date(plan.created_at)}</p>${plannerCounts(plan.category_counts)}<p>${text(plan.status==='failed'?'plannerFailed':'plannerHint')}</p></section>
     <section class="panel product-panel execution-review"><h2>${text('executionReview')}</h2><p>${text('baseUrl')}: <span class="mono">${esc(preview.base_url || t('executionMissingTarget'))}</span></p><p>${text('executionHint')}</p><div class="button-row">${plan.status==='ready'?button('executionApprove','approve-api-plan',planId,'primary'):''}<button class="primary" type="button" data-action="execute-api-plan" data-approved="${plan.status==='approved'}" data-id="${esc(planId)}" ${plan.status!=='approved' || runs.some(r=>r.status==='running') || executingPlans.has(workspace+':'+planId)?'disabled':''}>${text('executionStart')}</button>${button('edit','edit-project',projectId)}</div></section>
     <section id="api-run-results" class="panel product-panel" aria-live="polite"></section>
-    <div class="planner-cases">${cases.map(c=>{const e=endpoints.find(e=>e.id===c.endpoint_id),p=preview.cases.find(p=>p.case_id===c.id);return `<article class="panel product-panel planner-case"><div class="progress-heading"><h2>${esc(c.name)}</h2><span class="badge">${esc(c.priority)}</span></div><p class="mono">${esc(e?.method)} ${esc(e?.path)}</p><span class="badge">${text('plannerCategory_'+c.category)}</span><p>${esc(c.description)}</p><h3>${text('plannerSteps')}</h3><ol>${c.steps.map(step=>`<li>${esc(step)}</li>`).join('')}</ol><h3>${text('plannerExpected')}</h3><p>${esc(c.expected_result)}</p>${p?`<p>${text(p.requires_review?'executionScenarioReview':'executionDefaults')}</p>${p.error?`<p role="alert">${esc(p.error)}</p>`:''}<label>${text('executionRequest')}<textarea class="json-editor execution-request" data-case-id="${esc(c.id)}" rows="8" ${plan.status==='ready'?'':'readonly'}>${json(p.config.request_data)}</textarea></label><label>${text('executionExpectedStatus')}<input class="execution-status" data-case-id="${esc(c.id)}" type="number" min="100" max="599" required value="${esc(p.config.expected_status)}" ${plan.status==='ready'?'':'readonly'}></label>`:''}</article>`;}).join('')}</div>`;
+    <div class="planner-cases">${cases.map(c=>{const e=endpoints.find(e=>e.id===c.endpoint_id),p=preview.cases.find(p=>p.case_id===c.id);return `<article class="panel product-panel planner-case"><div class="progress-heading"><h2>${esc(c.name)}</h2><span class="badge">${esc(c.priority)}</span></div><p class="mono">${esc(e?.method)} ${esc(e?.path)}</p><span class="badge">${text('plannerCategory_'+c.category)}</span><p>${esc(c.description)}</p><h3>${text('plannerSteps')}</h3><ol>${c.steps.map(step=>`<li>${esc(step)}</li>`).join('')}</ol><h3>${text('plannerExpected')}</h3><p>${esc(c.expected_result)}</p>${p?`<p>${text(p.requires_review?'executionScenarioReview':'executionDefaults')}</p>${p.error?`<p role="alert">${esc(p.error)}</p>`:''}<label>${text('executionRequest')}<textarea class="json-editor execution-request" data-case-id="${esc(c.id)}" rows="8" ${plan.status==='ready'?'':'readonly'}>${json(p.config.request_data)}</textarea></label><label>${text('executionExpectedStatus')}<input class="execution-status" data-case-id="${esc(c.id)}" type="number" min="100" max="599" required value="${esc(p.config.expected_status)}" ${plan.status==='ready'?'':'readonly'}></label><label>${text('executionAssertions')}<textarea class="json-editor execution-assertions" data-case-id="${esc(c.id)}" rows="5" ${plan.status==='ready'?'':'readonly'}>${json(p.config.assertions || [])}</textarea></label>`:''}</article>`;}).join('')}</div>`;
   await renderApiRuns(planId,version,runs);
 }
 async function renderApiRuns(planId,version=identityVersion,runs) {
+  const revision=++apiRunRenderVersion,key=workspace+':'+planId;
   runs=runs || await api(`/api/test-plans/${planId}/runs`);
-  const latest=runs[0]?await api(`/api/test-runs/${runs[0].id}`):null;
-  if(version!==identityVersion || plannerDetailId!==planId || !$('api-run-results')) return;
-  $('api-run-results').innerHTML=`<h2>${text('executionRuns')}</h2>${runs.length?runs.map(r=>`<p class="api-run-summary"><span class="badge ${esc(r.status)}">${text(r.status)}</span> · ${text('plannerCaseCount')}: ${r.total_cases} · ${text('passed')}: ${r.passed_cases} · ${text('failed')}: ${r.failed_cases} · ${date(r.started_at)}</p>`).join(''):`<p>${text('executionNoRuns')}</p>`}${latest?.status==='interrupted'?`<p>${text('executionInterrupted')}</p>`:''}${latest?latest.executions.map(e=>`<details class="api-execution"><summary>${esc(e.method)} ${esc(e.url)} · HTTP ${esc(e.response_status ?? '—')} · ${text(e.passed?'passed':'failed')} · ${e.duration_ms} ms</summary><p>${esc(e.error_message)}</p><pre>${json(e.request_data)}</pre><pre>${esc(e.response_body)}</pre></details>`).join(''):''}`;
+  const selectedId=apiRunSelections.get(key) || runs[0]?.id;
+  const selected=selectedId?await api(`/api/test-runs/${selectedId}`):null;
+  if(revision!==apiRunRenderVersion || version!==identityVersion || plannerDetailId!==planId || !$('api-run-results')) return;
+  const blocked=executingPlans.has(key) || runs.some(r=>r.status==='running');
+  const summary=r=>{const s=r.summary;return `<span class="badge ${esc(s.status || r.status)}">${text(s.status || r.status)}</span> · ${text('plannerCaseCount')}: ${s.total_cases} · ${text('passed')}: ${s.passed_cases} · ${text('failed')}: ${s.failed_cases} · ${text('execution_error')}: ${s.execution_error_cases} · ${text('executionPending')}: ${s.pending_cases}`;};
+  const element=$('api-run-results');
+  const open=new Set([...element.querySelectorAll('details[open][data-execution-id]')].map(d=>d.dataset.executionId));
+  element.innerHTML=`<h2>${text('executionRuns')}</h2>${runs.length?`<label>${text('executionSelectRun')}<select id="api-run-selector">${runs.map(r=>`<option value="${esc(r.id)}" ${r.id===selectedId?'selected':''}>${date(r.started_at)} · ${esc(r.id.slice(0,8))} · ${text(r.summary.status || r.status)}</option>`).join('')}</select></label>`:`<p>${text('executionNoRuns')}</p>`}
+    ${runs.map(r=>`<p class="api-run-summary" data-run-id="${esc(r.id)}">${summary(r)} · ${date(r.started_at)}</p>`).join('')}
+    ${selected?`<section class="api-selected-run" data-run-id="${esc(selected.id)}"><h3>${text('executionDetail')} · ${esc(selected.id)}</h3><p>${summary(selected)}</p><p>${text('executionStarted')}: ${date(selected.started_at)} · ${text('executionFinished')}: ${date(selected.finished_at)}</p>${selected.summary.classification_inferred?`<p>${text('executionLegacy')}</p>`:''}${selected.status==='interrupted'?`<p>${text('executionInterrupted')}</p>`:''}<p>${text('executionRerunHint')}</p><button type="button" data-action="rerun-api-run" data-id="${esc(selected.id)}" ${blocked || selected.status==='running'?'disabled':''}>${text('executionRerun')}</button>
+    ${selected.executions.map(e=>`<details class="api-execution" data-execution-id="${esc(e.id)}" ${open.has(e.id)?'open':''}><summary>${esc(e.result_data?.case_name || e.case_id)} · ${esc(e.method)} ${esc(e.url)} · HTTP ${esc(e.response_status ?? '—')} · ${text(e.status)} · ${e.duration_ms} ms</summary>${e.classification_inferred?`<p>${text('executionLegacy')}</p>`:''}<p>${esc(e.result_data?.error_code || '')} ${esc(e.error_message)}</p><h4>${text('executionRequest')}</h4><pre>${json(e.request_data)}</pre><h4>${text('executionResponse')}</h4><pre>${esc(e.response_body)}</pre>${e.result_data?.response_body_truncated?`<p>${text('executionEvidenceTruncated')}</p>`:''}<h4>${text('executionAssertionResults')}</h4>${e.result_data?`<pre>${json(e.result_data.assertion_results)}</pre>`:`<p>${text('executionLegacyEvidence')}</p>`}</details>`).join('')}</section>`:''}`;
   const control=document.querySelector('[data-action="execute-api-plan"]');
-  if(control) control.disabled=control.dataset.approved!=='true' || executingPlans.has(workspace+':'+planId) || runs.some(r=>r.status==='running') || !!document.querySelector('[data-action="approve-api-plan"]');
+  if(control) control.disabled=control.dataset.approved!=='true' || blocked || !!document.querySelector('[data-action="approve-api-plan"]');
 }
 async function approveApiPlan(planId) {
   const cases=[...document.querySelectorAll('.execution-request')].map(input=>{
     const status=[...document.querySelectorAll('.execution-status')].find(s=>s.dataset.caseId===input.dataset.caseId);
     if(!status.reportValidity()) throw Error(t('executionExpectedStatus'));
-    return {case_id:input.dataset.caseId,request_data:parse(input.value),expected_status:Number(status.value)};
+    const assertions=[...document.querySelectorAll('.execution-assertions')].find(a=>a.dataset.caseId===input.dataset.caseId);
+    return {case_id:input.dataset.caseId,request_data:parse(input.value),expected_status:Number(status.value),assertions:parse(assertions.value)};
   });
   await api(`/api/test-plans/${planId}/approve`,'POST',{cases});
   await plannerDetail(planId,selectedProject);
   toast(t('plannerStatus_approved'));
 }
-async function executeApiPlan(planId) {
+async function executeApiPlan(planId,runId=null) {
   const key=workspace+':'+planId,version=identityVersion,projectId=selectedProject;
   if(executingPlans.has(key)) return;
   executingPlans.add(key);
-  try { await api(`/api/test-plans/${planId}/execute`,'POST'); }
+  try { const run=await api(runId?`/api/test-runs/${runId}/rerun`:`/api/test-plans/${planId}/execute`,'POST'); if(version===identityVersion) apiRunSelections.set(key,run.id); }
   finally { executingPlans.delete(key); if(version===identityVersion && plannerDetailId===planId) await plannerDetail(planId,projectId); }
 }
 async function generateApiPlan(projectId) {
@@ -360,6 +372,7 @@ document.addEventListener('click', async event=>{
     else if (action==='view-api-plan') { location.hash=`projects/${selectedProject}/test-plans/${id}`; }
     else if (action==='approve-api-plan') await approveApiPlan(id);
     else if (action==='execute-api-plan') await executeApiPlan(id);
+    else if (action==='rerun-api-run') await executeApiPlan(plannerDetailId,id);
     else if (action==='back-project') { selectedProject=id; location.hash='projects'; }
     else if (action==='delete-api-spec' && confirm(t('confirmDeleteApiSpec'))) { const projectId=selectedProject;
       await api(`/api/projects/${projectId}/api-specs/${encodeURIComponent(id)}`,'DELETE'); apiNotice=null; await apiTesting(projectId); toast(t('deleted')); }
@@ -390,9 +403,10 @@ document.addEventListener('click', async event=>{
   } catch(error) { toast(error.message); } finally { control.disabled=false; }
 });
 document.addEventListener('change', async event=>{
+  if(event.target.id==='api-run-selector') { apiRunSelections.set(workspace+':'+plannerDetailId,event.target.value); await renderApiRuns(plannerDetailId).catch(e=>toast(e.message)); return; }
   try {
     if (event.target.id==='language') { await loadLocale(event.target.value); shell(); if (currentView==='projects' && selectedProject) await projectDetail(selectedProject); }
-    else if (event.target.id==='workspace-selector') { identityVersion++; workspace=event.target.value; selectedProject=''; selectedTask=''; detail=null; projects=[]; tasks=[]; stats={}; model={}; providerConfigs=[]; apiModeProject=''; apiNotice=null; plannerDetailId=''; plannerSpecId=''; if(location.hash.includes('/api-testing') || location.hash.includes('/test-plans/')) history.replaceState(null,'','#projects'); clearPasswords(); $('dialog').close(); $('dialog').innerHTML=''; render(); await refresh(); }
+    else if (event.target.id==='workspace-selector') { identityVersion++; workspace=event.target.value; selectedProject=''; selectedTask=''; detail=null; projects=[]; tasks=[]; stats={}; model={}; providerConfigs=[]; apiModeProject=''; apiNotice=null; plannerDetailId=''; plannerSpecId=''; apiRunSelections.clear(); apiRunRenderVersion++; if(location.hash.includes('/api-testing') || location.hash.includes('/test-plans/')) history.replaceState(null,'','#projects'); clearPasswords(); $('dialog').close(); $('dialog').innerHTML=''; render(); await refresh(); }
     else if (event.target.id==='task-project') await taskEndpoints(event.target.value);
     else if (event.target.id==='planner-spec') plannerSpecId=event.target.value;
     else if (event.target.name==='project_type' && event.target.form?.id==='project-form') { event.target.form.elements.url.required=event.target.value==='web'; }

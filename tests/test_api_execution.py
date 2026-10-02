@@ -1,6 +1,7 @@
 """Review/execution acceptance uses MockTransport as an in-memory HTTP mock server."""
 import asyncio
 import json
+import logging
 import socket
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
@@ -154,7 +155,8 @@ def test_http_failure_saved_sanitized_and_no_retry(execution, error, caplog):
         raise error
     execution.handler = fail
     run = execute(execution).json()
-    assert run['failed_cases'] == 8 and len(execution.api_calls) == 8
+    assert run['failed_cases'] == 0 and run['summary']['execution_error_cases'] == 8 and len(execution.api_calls) == 8
+    assert run['status'] == 'execution_error'
     assert 'secret-url' not in execution.get('/api/test-runs/' + run['id']).text + caplog.text
 
 
@@ -183,7 +185,7 @@ def test_oversize_response_fails_without_persisting_body(execution):
     approve(execution)
     execution.handler = lambda r: httpx.Response(200, content=b'x' * 256_001)
     run = execute(execution).json()
-    assert run['failed_cases'] == 8
+    assert run['failed_cases'] == 0 and run['summary']['execution_error_cases'] == 8
     assert all(e['response_body'] is None for e in execution.get('/api/test-runs/' + run['id']).json()['executions'])
 
 
@@ -432,3 +434,220 @@ async def test_asgi_mock_server_receives_json_arrays_boolean_and_query(monkeypat
     result = await executor.execute(case, endpoint, 'https://qa.example/v1', config, 'run')
     assert result.passed and received == [{'body':{'name':'fixture','enabled':True,'values':[1,2]},
         'query':{'limit':'2','active':'true'},'tag':'mock'}]
+
+
+def test_json_evidence_mixed_outcomes_and_raw_secret_comparison(execution):
+    for case in execution.review['cases']:
+        case['assertions']=[{'type':'json','path':'data.token','operator':'equals','expected':'response-fixture-secret'},
+                            {'type':'json','path':'data.ok','operator':'equals','expected':True}]
+    assert approve(execution).status_code==200
+    def handler(request):
+        return httpx.Response(200,json={'data':{'token':'response-fixture-secret','ok':request.method=='POST'},
+                                        'echo':'response-fixture-secret'})
+    execution.handler=handler
+    model_calls=len(execution.model_calls)
+    run=execute(execution).json()
+    assert run['summary']['passed_cases']==run['summary']['failed_cases']==4
+    assert run['summary']['execution_error_cases']==0
+    detail=execution.get('/api/test-runs/'+run['id'])
+    preview=execution.get(execution.plan_path+'/execution-preview')
+    assert 'response-fixture-secret' not in detail.text+preview.text
+    assert all(e['result_data']['assertion_results'][1]['status']=='passed' for e in detail.json()['executions'])
+    assert len(execution.model_calls)==model_calls
+
+
+@pytest.mark.parametrize('exception,code',[(RuntimeError('private executor detail'),'internal_error'),
+                                         (httpx.RemoteProtocolError('private detail'),'transport_error')])
+def test_case_internal_errors_saved_and_continue(execution,exception,code):
+    approve(execution)
+    def handler(request):
+        if request.method=='POST':
+            raise exception
+        return httpx.Response(200)
+    execution.handler=handler
+    run=execute(execution).json()
+    assert run['status']=='execution_error' and run['summary']['lifecycle']=='completed'
+    assert run['summary']['execution_error_cases']==run['summary']['passed_cases']==4
+    detail=execution.get('/api/test-runs/'+run['id'])
+    assert 'private' not in detail.text
+    assert {e['result_data']['error_code'] for e in detail.json()['executions']}=={None,code}
+
+
+def test_dns_availability_is_execution_error_not_preflight_business_failure(execution,monkeypatch):
+    approve(execution)
+    def unavailable(*args,**kwargs):
+        raise socket.gaierror('private DNS detail')
+    monkeypatch.setattr(socket,'getaddrinfo',unavailable)
+    response=execute(execution)
+    assert response.status_code==201
+    run=response.json()
+    assert run['summary']['execution_error_cases']==8 and run['failed_cases']==0
+    detail=execution.get('/api/test-runs/'+run['id'])
+    assert 'private DNS' not in detail.text and not execution.api_calls
+    assert all(e['result_data']['error_code']=='dns_error' for e in detail.json()['executions'])
+
+
+def test_legacy_approved_config_executes_and_reruns_without_conversion(execution):
+    from autoqa.test_execution_api import case_scope
+    approve(execution)
+    box=execution.application.state.gateway.box
+    with Session(execution.application.state.store.engine) as session:
+        for case in session.scalars(select(Case).where(Case.plan_id==execution.plan_id)):
+            old=box.decrypt(case.execution_config['encrypted'],case_scope(case))
+            old.pop('assertions')
+            case.execution_config={'encrypted':box.encrypt(old,case_scope(case))}
+        session.commit()
+        snapshots={case.id:case.execution_config for case in session.scalars(select(Case))}
+    first=execute(execution).json()
+    original=execution.get('/api/test-runs/'+first['id']).json()
+    second=execution.post('/api/test-runs/'+first['id']+'/rerun')
+    assert second.status_code==201 and second.json()['id']!=first['id']
+    assert execution.get('/api/test-runs/'+first['id']).json()==original
+    with Session(execution.application.state.store.engine) as session:
+        assert {case.id:case.execution_config for case in session.scalars(select(Case))}==snapshots
+
+
+def test_legacy_classification_is_read_only_and_summary_does_not_double_count(execution):
+    approve(execution)
+    def handler(request):
+        if request.method=='POST':
+            raise httpx.ConnectError('fixture')
+        return httpx.Response(200)
+    execution.handler=handler
+    run=execute(execution).json()
+    with Session(execution.application.state.store.engine) as session:
+        session.execute(update(Execution).where(Execution.run_id==run['id']).values(status=None,result_data=None))
+        session.execute(update(Run).where(Run.id==run['id']).values(status='failed',failed_cases=4))
+        session.commit()
+    detail=execution.get('/api/test-runs/'+run['id']).json()
+    assert detail['status']=='failed' and detail['failed_cases']==4
+    assert detail['summary']['outcome']=='execution_error' and detail['summary']['failed_cases']==0
+    assert detail['summary']['execution_error_cases']==4 and detail['summary']['classification_inferred']
+    assert all(e['classification_inferred'] and e['result_data'] is None for e in detail['executions'])
+    assert execution.get(execution.plan_path+'/runs').json()[0]['summary']==detail['summary']
+    with Session(execution.application.state.store.engine) as session:
+        assert all(row.status is None and row.result_data is None for row in session.scalars(select(Execution)))
+        assert session.get(Run,run['id']).failed_cases==4
+
+
+def test_rerun_permissions_csrf_target_change_and_active_slot(execution):
+    approve(execution)
+    first=execute(execution).json()
+    path='/api/test-runs/'+first['id']+'/rerun'
+    cookies=dict(execution.cookies)
+    csrf=execution.headers['X-CSRF-Token']
+    signed=sign_up(execution,email='foreign-rerun@example.com')
+    assert bearer(execution,signed['access_token']).post(path).status_code==404
+    execution.cookies.clear()
+    execution.cookies.update(cookies)
+    execution.headers['X-CSRF-Token']=csrf
+    assert execution.post('/api/test-runs/missing/rerun').status_code==404
+    with Session(execution.application.state.store.engine) as session:
+        plan=session.get(Plan,execution.plan_id)
+        active=Run(workspace_id=plan.workspace_id,project_id=plan.project_id,plan_id=plan.id,
+                   active_plan_id=plan.id,total_cases=8,created_by=plan.created_by)
+        session.add(active)
+        session.commit()
+        active_id=active.id
+    assert execution.post(path).status_code==409
+    assert execution.post('/api/test-runs/'+active_id+'/rerun').status_code==409
+    execution.headers.pop('X-CSRF-Token')
+    assert execution.post(path).status_code==403
+    execution.headers['X-CSRF-Token']=csrf
+    with Session(execution.application.state.store.engine) as session:
+        session.execute(update(Run).where(Run.id==active_id).values(status='interrupted',active_plan_id=None))
+        session.execute(update(ProjectRow).where(ProjectRow.id==execution.item['id']).values(url='https://qa.example/v2'))
+        session.commit()
+    assert execution.post(path).status_code==409
+
+
+def test_non_json_secret_fragments_and_response_echo_hidden(execution):
+    approve(execution)
+    execution.handler=lambda request: httpx.Response(200,text='malformed {"access_token":"new-response-secret"')
+    run=execute(execution).json()
+    result=execution.get('/api/test-runs/'+run['id'])
+    assert 'new-response-secret' not in result.text
+    assert all(e['response_body']=='[REDACTED BODY]' for e in result.json()['executions'])
+
+
+def test_connection_time_rebinding_blocks_before_inner_transport(execution,monkeypatch):
+    approve(execution)
+    calls=[]
+    def factory():
+        transport=PinnedTransport(False)
+        # No target request is permitted to reach this inner transport.
+        transport.inner=httpx.MockTransport(lambda request: calls.append(request) or httpx.Response(200))
+        return transport
+    execution.application.state.api_executor.transport_factory=factory
+    resolutions=[]
+    def dns(*args,**kwargs):
+        resolutions.append(True)
+        ip='93.184.216.34' if len(resolutions)<=3 else '127.0.0.1'
+        return [(socket.AF_INET,socket.SOCK_STREAM,6,'',(ip,443))]
+    monkeypatch.setattr(socket,'getaddrinfo',dns)
+    run=execute(execution).json()
+    assert run['summary']['execution_error_cases']==8 and not calls
+    detail=execution.get('/api/test-runs/'+run['id']).json()
+    assert all(e['result_data']['error_code']=='policy_rejected' for e in detail['executions'])
+
+
+def test_invalid_json_review_is_atomic_and_configured_non_json_is_failed(execution):
+    execution.review['cases'][0]['assertions']=[{'type':'json','path':'data','operator':'exists','expected':True}]
+    assert approve(execution).status_code==422
+    assert execution.get(execution.plan_path).json()['status']=='ready'
+    for case in execution.review['cases']:
+        case['assertions']=[{'type':'json','path':'data','operator':'exists'}]
+    assert approve(execution).status_code==200
+    execution.handler=lambda request: httpx.Response(200,text='plain body')
+    run=execute(execution).json()
+    assert run['summary']['failed_cases']==8 and run['summary']['execution_error_cases']==0
+
+
+@pytest.mark.parametrize('url',['http://169.254.1.1','http://[fe80::1]','http://[fd00:ec2::254]',
+    'http://[::ffff:127.0.0.1]','http://metadata.google.internal','ftp://qa.example',
+    'http://@qa.example','http://qa.example/v1/%2e%2e/admin'])
+def test_additional_ssrf_and_base_path_cases_rejected(url):
+    with pytest.raises(ValueError):
+        validate_base_url(url)
+
+
+def test_sensitive_query_is_not_exposed_by_http_client_logging(execution,caplog):
+    for case in execution.review['cases']:
+        case['request_data']['query']['token']='fixture-query-secret'
+    approve(execution)
+    with caplog.at_level(logging.INFO,logger='httpx'):
+        run=execute(execution).json()
+    assert run['passed_cases']==8
+    assert 'fixture-query-secret' not in caplog.text
+    assert sum(getattr(record,'event',None)=='api_http_event' for record in caplog.records)==8
+
+
+async def test_redacted_body_remains_bounded_and_comparison_uses_raw_values(monkeypatch):
+    monkeypatch.setattr('autoqa.api_executor.validate_base_url',lambda *args: None)
+    monkeypatch.setattr('autoqa.api_executor.resolve_target',lambda *args: '93.184.216.34')
+    raw=json.dumps({'token':'fixture-redaction-token','data':[True]*45000},separators=(',',':')).encode()
+    assert len(raw)<256000
+    executor=ApiExecutor()
+    executor.transport_factory=lambda: httpx.MockTransport(lambda request: httpx.Response(200,content=raw))
+    config=CaseConfig.model_validate({'request_data':{},'expected_status':200,'assertions':[
+        {'type':'json','path':'data.0','operator':'equals','expected':True}]})
+    case=SimpleNamespace(workspace_id='w',plan_id='p',id='c')
+    endpoint=SimpleNamespace(method='GET',path='/ok')
+    result=await executor.execute(case,endpoint,'https://qa.example',config,'run')
+    assert result.status=='passed' and result.result_data['response_body_truncated']
+    assert len(result.response_body.encode())<=256000 and 'fixture-redaction-token' not in result.response_body
+    assert result.result_data['assertion_results'][1]['actual'] is True
+
+
+async def test_valid_json_processing_limit_is_not_business_assertion_failure(monkeypatch):
+    monkeypatch.setattr('autoqa.api_executor.validate_base_url',lambda *args: None)
+    monkeypatch.setattr('autoqa.api_executor.resolve_target',lambda *args: '93.184.216.34')
+    body='{"data":'+ '['*66+'true'+']'*66+'}'
+    executor=ApiExecutor()
+    executor.transport_factory=lambda: httpx.MockTransport(lambda request: httpx.Response(200,content=body))
+    config=CaseConfig.model_validate({'request_data':{},'expected_status':200,'assertions':[
+        {'type':'json','path':'data','operator':'exists'}]})
+    result=await executor.execute(SimpleNamespace(workspace_id='w',plan_id='p',id='c'),
+        SimpleNamespace(method='GET',path='/ok'),'https://qa.example',config,'run')
+    assert result.status=='execution_error' and result.result_data['error_code']=='response_too_complex'
+    assert all(r['status']=='not_evaluated' for r in result.result_data['assertion_results'])

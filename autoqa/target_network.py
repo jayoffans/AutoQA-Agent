@@ -9,6 +9,14 @@ import httpx
 from .security import origin
 
 
+class TargetResolutionError(ValueError):
+    """DNS availability failure, distinct from a policy rejection."""
+
+
+class ResponseTooLargeError(ValueError):
+    """The decoded response exceeded its byte budget."""
+
+
 def resolve_target(url, allow_private=False):
     origin(url)
     parsed = urlsplit(url)
@@ -21,7 +29,7 @@ def resolve_target(url, allow_private=False):
         addresses = {str(ipaddress.ip_address(item[4][0])) for item in socket.getaddrinfo(
             parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)}
     except (OSError, ValueError):
-        raise ValueError("Target DNS resolution failed") from None
+        raise TargetResolutionError("Target DNS resolution failed") from None
     if not addresses or any(not ipaddress.ip_address(ip).is_global for ip in addresses) and not allow_private:
         raise ValueError("Private, loopback, link-local and metadata IP addresses are disabled")
     # Metadata is forbidden even for explicitly opted-in self-hosted private deployments.
@@ -68,7 +76,7 @@ async def fetch_limited(client, method, url, *, max_bytes=2_000_000, **kwargs):
         async for chunk in response.aiter_bytes():
             size += len(chunk)
             if size > max_bytes:
-                raise ValueError("Remote response exceeds the size limit")
+                raise ResponseTooLargeError("Remote response exceeds the size limit")
             chunks.append(chunk)
         return httpx.Response(response.status_code, headers=response.headers,
                               content=b"".join(chunks), request=response.request)

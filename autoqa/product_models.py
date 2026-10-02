@@ -218,7 +218,7 @@ class TestRun(Base):
                              ["ai_test_plans.id", "ai_test_plans.project_id", "ai_test_plans.workspace_id"],
                              name="fk_api_run_plan_scope"),
         UniqueConstraint("id", "plan_id", "workspace_id", name="uq_api_run_scope"),
-        CheckConstraint("status IN ('running','passed','failed','interrupted')", name="ck_api_run_status"),
+        CheckConstraint("status IN ('running','passed','failed','execution_error','interrupted')", name="ck_api_run_status"),
         CheckConstraint("total_cases >= 0 AND passed_cases >= 0 AND failed_cases >= 0 "
                         "AND passed_cases + failed_cases <= total_cases", name="ck_api_run_counts"),
     )
@@ -248,6 +248,9 @@ class TestExecution(Base):
                              name="fk_api_execution_case_scope"),
         UniqueConstraint("run_id", "case_id", name="uq_api_execution_case"),
         CheckConstraint("duration_ms >= 0", name="ck_api_execution_duration"),
+        CheckConstraint("status IS NULL OR status IN ('passed','failed','execution_error')", name="ck_api_execution_status"),
+        CheckConstraint("status IS NULL OR (status = 'passed' AND passed = 1) OR "
+                        "(status IN ('failed','execution_error') AND passed = 0)", name="ck_api_execution_passed"),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
@@ -262,3 +265,5 @@ class TestExecution(Base):
     passed: Mapped[bool] = mapped_column(Boolean)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    result_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)

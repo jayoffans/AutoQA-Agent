@@ -6,7 +6,7 @@ from .config import Settings
 
 def origin(url: str) -> str:
     p = urlsplit(url)
-    if p.scheme not in {"http", "https"} or not p.hostname or p.username or p.password:
+    if p.scheme not in {"http", "https"} or not p.hostname or p.username is not None or p.password is not None:
         raise ValueError("Only HTTP(S) URLs without embedded credentials are supported")
     port = p.port
     host = f"[{p.hostname}]" if ":" in p.hostname else p.hostname

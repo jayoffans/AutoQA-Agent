@@ -260,75 +260,99 @@ CI 全部使用 Mock HTTP Transport 和假密钥，SQLite / MySQL 执行相同�
 
 ## Execution Architecture
 
-Phase 6-2-C-1-C 支持人工审核后的 API 测试执行：
+Phase 6-2-C-1-D completes API execution without model calls:
 
 ```text
-OpenAPI → AI TestPlan (ready)
-                ↓ 人工确认请求参数和预期 HTTP 状态码
-        TestPlan (approved，固定目标与请求)
-                ↓ POST /api/test-plans/{id}/execute
-           TestRun → ApiExecutor (httpx，不调用 LLM)
-                         ↓ 每条请求完成后原子保存结果与计数
-                    TestExecution → 前端运行状态 / 通过数量 / 失败数量
+Approved TestPlan → Execution Preview → ApiExecutor / pinned httpx
+                                       ↓ deterministic HTTP + JSON assertions
+                                  TestExecution → TestRun Summary
 ```
 
-生产库增量迁移为 `0008_api_execution`（包含在 wheel 中）。`TestRun` / `TestExecution` 分别使用
-`api_test_runs` / `api_test_executions` 表，与旧 Demo 的 `test_runs`、报告及任务流程独立。
-Run 保存工作区、项目、计划、执行人、状态、总数、通过数、失败数及起止时间；Execution 保存用例、
-实际 method / URL、脱敏请求、响应状态 / 正文、通过标记、错误与耗时。
-复合外键保证 run / case / plan 工作区与计划一致，唯一 active slot 防止同一计划并发执行。
-审核记录 `approved_by / approved_at / approved_base_url`，Case 执行配置使用 AES-GCM 加密存储。
+Human review freezes the target, requests, expected HTTP status and optional JSON assertions.
+`TestCase.execution_config` retains its AES-GCM envelope; older status-only configurations load with
+an empty assertion list. Migration `0009_execution_assertions` adds only nullable Execution `status`
+and `result_data`, plus outcome constraints. Existing migrations and historical evidence are unchanged.
+The independent `api_test_runs` / `api_test_executions` tables retain workspace/plan/case foreign keys
+and the database-backed single active run per plan.
 
-| API | 行为 |
+| API | Behavior |
 | --- | --- |
-| `GET /api/test-plans/{id}/execution-preview` | 离线生成 OpenAPI 默认参数，展示审核数据；不会请求目标 |
-| `POST /api/test-plans/{id}/approve` | `ready → approved`；确认并冻结全部请求、目标和预期状态码 |
-| `POST /api/test-plans/{id}/execute` | 只执行已审核计划，同步完成后返回 201 和 TestRun；不会调用模型 |
-| `GET /api/test-plans/{id}/runs` | 持久化运行历史及实时计数 |
-| `GET /api/test-runs/{id}` | 运行详情及逐条 TestExecution |
+| `GET /api/test-plans/{id}/execution-preview` | Offline, redacted request and assertion preview |
+| `POST /api/test-plans/{id}/approve` | Atomic review of all cases; configuration becomes immutable |
+| `POST /api/test-plans/{id}/execute` | Execute approved configuration; return a new TestRun with 201 |
+| `GET /api/test-plans/{id}/runs` | Historical runs with derived summaries |
+| `GET /api/test-runs/{id}` | Selected run, request/response and independent assertion evidence |
+| `POST /api/test-runs/{id}/rerun` | Full rerun using approved configuration; new run and execution IDs |
 
-审核请求示例（必须包含计划全部 Case，Case ID 不得重复）：
+Example reviewed case (submit every case exactly once):
 
 ```json
 {
   "cases": [{
     "case_id": "case-uuid",
-    "request_data": {
-      "path_params": {"id": 1}, "query": {"limit": 10},
-      "headers": {}, "json_body": null
-    },
-    "expected_status": 200
+    "request_data": {"path_params": {}, "query": {}, "headers": {}, "json_body": null},
+    "expected_status": 200,
+    "assertions": [
+      {"type": "json", "path": "data.success", "operator": "equals", "expected": true},
+      {"type": "json", "path": "data.token", "operator": "exists"},
+      {"type": "json", "path": "users.0.id", "operator": "type", "expected": "integer"}
+    ]
   }]
 }
 ```
 
-默认参数支持 string、integer、boolean、array、object 和文档内 `$ref`，优先采用
-default / example / enum。默认请求是正常输入样例，无法推断自然语言中的异常、边界、安全断言；
-这些场景必须由人工调整请求和预期状态码。只有全为 positive 的计划可省略审核请求体并确认默认值。
-当前只比较人工确认的 HTTP 状态码；文字 steps / expected_result 用于审核，不执行代码或自然语言。
+Paths are dotted exact keys with numeric array indices; no JSONPath expressions, wildcards or code.
+`exists` accepts a present null. Equality separates booleans from numbers, treats 1 and 1.0 as equal,
+ignores object key order and preserves array order. Types are string, number, integer, boolean, object,
+array and null. Each case permits 32 JSON assertions, paths of 256 characters / 32 segments.
+No JSON assertions are automatically inferred from prose or supplied by a model during execution.
 
-UI 路径：项目 → API 测试 → 生成 / 查看测试计划 → 编辑请求 JSON 和预期状态码 → 审核通过 →
-执行 API 测试。先在项目设置中填写 Base URL；审核后的配置只读。页面轮询展示 running / passed /
-failed / interrupted、计数和脱敏响应。刷新保留审核与运行历史；目标变更要求重新生成和审核计划。
+Execution outcomes are `passed`, `failed` (completed HTTP with an assertion mismatch) and
+`execution_error` (DNS, timeout, TLS, connection, policy, response limit or internal failure).
+HTTP 500 can pass when expected. Redirect responses fail even if their status was expected; they
+are never followed. Run status retains the existing running/result/interrupted architecture;
+`summary.lifecycle` separates running/interrupted/completed from nullable `summary.outcome`.
+Summaries count passed, failed, execution_error and pending from saved executions. Interrupted or
+in-flight cases without evidence remain pending. Historical top-level counters stay unchanged;
+nullable old Execution statuses are inferred only on read with `classification_inferred=true`.
+No historical assertion evidence is invented.
 
-执行始终禁止 localhost、127.0.0.1、IPv6 回环、私网、链路本地与云元数据地址，
-**即使旧流程启用了 `AUTOQA_ALLOW_PRIVATE_TARGETS` 也不放行**。审核、执行前、逐条请求和连接时均检查
-公网目标；DNS 返回任意非公网地址即拒绝，连接固定已验证 IP 并保留 TLS SNI / Host。
-仅允许 HTTP(S) 与 80 / 443 / 8080 / 8443 端口，禁止 URL 凭据、查询 / 片段式 Base URL、
-越界路径、路径穿越、Host / 传输 Header 覆盖；不跟随重定向、不读取环境代理、不自动重试。
-所有接口沿用认证、工作区成员权限、归档隔离与 Cookie CSRF 校验。请求凭据加密，结果及响应回显按
-整个运行的敏感值脱敏，UI 对所有内容转义。
+Production UI supports JSON assertion review, selected historical run details and explicit rerun.
+Rerun never reconstructs credentials from redacted requests and never overwrites a previous run.
+An active run or changed project target is rejected with 409. Rerun can repeat business writes;
+there is no automatic retry, partial rerun, response-variable chaining or transactional rollback.
 
-限制：JSON 请求体及 path / query / header 参数，最多 240 Case / Run；单请求 64 KB，响应 256 KB，
-单用例总超时 10 秒、整次执行 120 秒。串行执行且逐条提交；请求取消、保存错误、超时或重启后标记
-`interrupted`，保留已保存的结果与计数，未执行用例不算通过。明确重新执行会创建新 Run，可能重复
-业务写入；没有队列、自动续跑或事务回滚。服务恢复按单进程部署设计，多 worker 租约仍待实现。
-当前未接入项目环境变量 / 凭据替换、Cookie / 表单 / 文件上传、响应 JSON Schema 断言、AI 结果分析、
-Web 测试或报告系统。旧 Demo / Web / Report 功能保持原有流程，Demo 模式不暴露本阶段的生产接口。
+SSRF remains strict even when legacy private-target settings are enabled: public IPs only,
+complete DNS-set validation and connection-time IP pinning with original Host/SNI. URL userinfo,
+base/endpoint path traversal, Host/transport header overrides, redirects and environment proxies
+remain blocked. HTTP(S) ports are limited to 80/443/8080/8443. Authentication, workspace and archived
+project checks and Cookie CSRF remain shared with Production.
 
-专项验证使用 HTTP MockTransport 和 ASGI Mock Server，不请求真实外部 API：
-`pytest tests/test_api_execution.py tests/test_api_execution_compat.py tests/test_api_execution_browser.py -q`。
-详情见 [Phase 6-2-C-1-C 报告](docs/phase6-2c-1c.md)。
+Assertions compare raw responses first. Only then are request/response/error/assertion evidence
+redacted and bounded. Sensitive fields are always masked; response secret echoes are hidden using
+long, non-common sensitive strings rather than global replacement of short/common values. Malformed
+sensitive text bodies are hidden conservatively. HTTP library logging is sanitized only within the
+execution context. Assertion display values are limited to 4096 bytes and saved response text to
+256,000 bytes; truncation is marked without changing the comparison result.
+
+Limits remain 240 cases/run, 64,000 bytes of reviewed configuration, 256,000 decoded response bytes,
+10 seconds/case and 120 seconds/run. Evidence and counters commit after each case. Run cancellation,
+storage failures and process recovery preserve completed evidence and use interrupted lifecycle.
+The runner remains in-process and serial; startup recovery assumes a single process.
+
+Real socket acceptance uses a controlled HTTP server and the original pinned/real httpx transport.
+The localhost exception is a pytest-only exact-target resolver monkeypatch; no production setting,
+environment escape hatch or general localhost allowance is added. Default test and production
+execution still reject local targets. TLS verification remains enabled.
+
+```bash
+pytest tests/test_api_assertions.py tests/test_api_execution.py tests/test_api_execution_socket.py \
+  tests/test_api_execution_compat.py tests/test_api_execution_browser.py -q
+```
+
+No Phase E analyzer, Finding, Report, Web execution extension or queue is added.
+See [Phase D acceptance](docs/phase6-2c-1d.md) and the historical
+[Phase C implementation](docs/phase6-2c-1c.md).
 
 ## Verification
 

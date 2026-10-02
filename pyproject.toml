@@ -30,7 +30,7 @@ autoqa = ["static/*", "static/locales/*", "demo/*"]
 [tool.setuptools.data-files]
 "." = ["alembic.ini"]
 "migrations" = ["migrations/env.py"]
-"migrations/versions" = ["migrations/versions/0001_legacy.py", "migrations/versions/0002_product.py", "migrations/versions/0003_auth.py", "migrations/versions/0004_onboarding.py", "migrations/versions/0005_provider_center.py", "migrations/versions/0006_api_import.py", "migrations/versions/0007_test_planner.py", "migrations/versions/0008_api_execution.py"]
+"migrations/versions" = ["migrations/versions/0001_legacy.py", "migrations/versions/0002_product.py", "migrations/versions/0003_auth.py", "migrations/versions/0004_onboarding.py", "migrations/versions/0005_provider_center.py", "migrations/versions/0006_api_import.py", "migrations/versions/0007_test_planner.py", "migrations/versions/0008_api_execution.py", "migrations/versions/0009_execution_assertions.py"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

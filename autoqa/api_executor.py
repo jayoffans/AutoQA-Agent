@@ -2,6 +2,7 @@
 import asyncio
 import json
 import re
+import ssl
 import time
 from typing import Any
 from urllib.parse import quote, unquote, urlsplit
@@ -9,10 +10,19 @@ from urllib.parse import quote, unquote, urlsplit
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
+from .api_assertions import JsonAssertion, ResponseComplexityError, assertion_results, parse_json
 from .crypto import scrub
+from .execution_privacy import config_secrets, redact_assertions, safe_text, sensitive_values
 from .product_models import TestExecution
+from .safe_logging import private_http_logs
 from .security import origin, safe_url
-from .target_network import PinnedTransport, fetch_limited, resolve_target
+from .target_network import (
+    PinnedTransport,
+    ResponseTooLargeError,
+    TargetResolutionError,
+    fetch_limited,
+    resolve_target,
+)
 
 CASE_TIMEOUT = 10
 MAX_RESPONSE_BYTES = 256_000
@@ -32,6 +42,7 @@ class CaseConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     request_data: RequestData
     expected_status: int = Field(ge=100, le=599)
+    assertions: list[JsonAssertion] = Field(default_factory=list, max_length=32)
 
 
 def default_value(schema, document, depth=0):
@@ -95,16 +106,28 @@ def default_config(endpoint, document):
     return CaseConfig(request_data=data, expected_status=statuses[0])
 
 
-def validate_base_url(url):
+def validate_base_structure(url):
     origin(url)
     parts = urlsplit(url)
-    if parts.query or parts.fragment or any(c in url for c in "\\\r\n\t"):
+    if parts.query or parts.fragment or any(ord(c) < 32 or ord(c) == 127 for c in url) or "\\" in url:
         raise ValueError("Base URL 不得包含查询、片段或控制字符")
+    validate_path(parts.path)
+
+
+def validate_path(path):
+    decoded = unquote(path)
+    if any(c in decoded for c in "%\\?#") or any(ord(c) < 32 or ord(c) == 127 for c in decoded) or any(
+            segment in {".", ".."} for segment in decoded.split("/")):
+        raise ValueError("禁止路径穿越")
+
+
+def validate_base_url(url):
+    validate_base_structure(url)
     resolve_target(url, allow_private=False)
 
 
 def request_url(base_url, endpoint, data):
-    origin(base_url)
+    validate_base_structure(base_url)
     path = endpoint.path
     if not path.startswith("/") or path.startswith("//") or any(c in path for c in "\\?#") or any(
             ord(c) < 32 or ord(c) == 127 for c in path):
@@ -121,12 +144,11 @@ def request_url(base_url, endpoint, data):
                 ord(c) < 32 or ord(c) == 127 for c in value):
             raise ValueError("路径参数包含不安全字符")
         path = path.replace("{" + name + "}", quote(value, safe=""))
-    decoded = unquote(path)
-    if "{" in path or "}" in path or "%" in decoded or "\\" in decoded or any(
-            ord(c) < 32 or ord(c) == 127 for c in decoded) or any(
-            segment in {".", ".."} for segment in decoded.split("/")):
+    validate_path(path)
+    if "{" in path or "}" in path:
         raise ValueError("禁止路径穿越")
     url = base_url.rstrip("/") + path
+    validate_path(urlsplit(url).path)
     if origin(url) != origin(base_url) or len(url) > 4000:
         raise ValueError("请求必须留在已审核的 Base URL")
     return url
@@ -136,7 +158,7 @@ def validate_config(endpoint, config, base_url):
     if endpoint.method not in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}:
         raise ValueError("不支持该 HTTP 方法")
     data = config.request_data
-    if len(json.dumps(config.model_dump(), allow_nan=False).encode()) > MAX_REQUEST_BYTES:
+    if len(json.dumps(config.model_dump(), allow_nan=False, ensure_ascii=False).encode()) > MAX_REQUEST_BYTES:
         raise ValueError("请求参数超出限制")
     for key, value in data.headers.items():
         if (not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", key) or any(ord(c) < 32 or ord(c) == 127 for c in value)
@@ -151,20 +173,17 @@ def validate_config(endpoint, config, base_url):
 
 
 def request_secrets(data):
-    result = []
-    def visit(value, sensitive=False):
-        if isinstance(value, dict):
-            for key, child in value.items():
-                visit(child, sensitive or bool(re.search(r"password|secret|token|authorization|cookie|api.?key", key, re.I)))
-        elif isinstance(value, list):
-            for child in value:
-                visit(child, sensitive)
-        elif sensitive and isinstance(value, str) and value:
-            result.append(value)
-            if value.lower().startswith("bearer "):
-                result.append(value[7:])
-    visit(data)
-    return result
+    return sensitive_values(data)
+
+
+def tls_error(error):
+    seen = set()
+    while error is not None and id(error) not in seen:
+        if isinstance(error, ssl.SSLError):
+            return True
+        seen.add(id(error))
+        error = error.__cause__ or error.__context__
+    return False
 
 
 class ApiExecutor:
@@ -174,36 +193,79 @@ class ApiExecutor:
     async def execute(self, case, endpoint, base_url, config, run_id, secrets_to_hide=()):
         started = time.monotonic()
         data = config.request_data.model_dump()
-        hidden = [*secrets_to_hide, *request_secrets(data)]
+        hidden = [*secrets_to_hide, *config_secrets(config)]
         result = TestExecution(workspace_id=case.workspace_id, plan_id=case.plan_id, run_id=run_id,
             case_id=case.id, method=endpoint.method, url=safe_url(base_url), request_data=scrub(data, hidden),
-            response_status=None, response_body=None, passed=False, error_message=None, duration_ms=0)
+            response_status=None, response_body=None, passed=False, error_message=None, duration_ms=0,
+            status="execution_error")
+        evidence = assertion_results(config.expected_status, config.assertions)
+        error_code = None
         try:
             url = validate_config(endpoint, config, base_url)
             result.url = scrub(safe_url(url), hidden)
             # Revalidate every request, then pin again at connection time. Never honor the private-target setting.
-            async with asyncio.timeout(CASE_TIMEOUT):
-                await asyncio.to_thread(validate_base_url, base_url)
-                await asyncio.to_thread(resolve_target, url, False)
-                async with httpx.AsyncClient(transport=self.transport_factory(), timeout=CASE_TIMEOUT,
-                        follow_redirects=False, trust_env=False) as client:
-                    response = await fetch_limited(client, endpoint.method, url, max_bytes=MAX_RESPONSE_BYTES,
-                        params=config.request_data.query, headers=config.request_data.headers,
-                        **({"json": config.request_data.json_body} if config.request_data.json_body is not None else {}))
+            with private_http_logs():
+                response = await self._request(endpoint, base_url, config, url)
             result.response_status = response.status_code
+            evidence = assertion_results(config.expected_status, config.assertions, response.status_code, response.content)
             try:
-                result.response_body = json.dumps(scrub(response.json(), hidden), ensure_ascii=False)
-            except ValueError:
-                result.response_body = scrub(response.text, hidden)
-            result.passed = response.status_code == config.expected_status and not 300 <= response.status_code < 400
+                raw = parse_json(response.content)
+                hidden.extend(sensitive_values(raw))
+                result.response_body = json.dumps(scrub(raw, hidden), ensure_ascii=False)
+            except (ValueError, RecursionError):
+                result.response_body = safe_text(response.text, hidden)
+            result.passed = all(entry["status"] == "passed" for entry in evidence)
+            result.status = "passed" if result.passed else "failed"
             if not result.passed:
                 result.error_message = ("禁止跟随重定向" if 300 <= response.status_code < 400 else
-                                        f"预期 HTTP {config.expected_status}，收到 HTTP {response.status_code}")
+                    f"预期 HTTP {config.expected_status}，收到 HTTP {response.status_code}" if response.status_code != config.expected_status
+                    else "JSON 断言未通过")
         except (TimeoutError, httpx.TimeoutException):
+            error_code = "timeout"
             result.error_message = "HTTP 请求超时"
+        except TargetResolutionError:
+            error_code = "dns_error"
+            result.error_message = "目标 DNS 解析失败"
+        except ResponseTooLargeError:
+            error_code = "response_too_large"
+            result.error_message = "响应超出大小限制"
+        except ResponseComplexityError:
+            error_code = "response_too_complex"
+            result.error_message = "响应 JSON 结构超出复杂度限制"
+        except httpx.ConnectError as error:
+            error_code = "tls_error" if tls_error(error) else "connection_error"
+            result.error_message = "TLS 校验失败" if error_code == "tls_error" else "HTTP 连接失败"
         except httpx.HTTPError:
+            error_code = "transport_error"
             result.error_message = "HTTP 请求失败"
         except (ValueError, KeyError, TypeError):
-            result.error_message = "请求被安全策略拒绝或响应超出限制"
+            error_code = "policy_rejected"
+            result.error_message = "请求被安全策略拒绝"
+        except Exception:
+            error_code = "internal_error"
+            result.error_message = "执行器内部错误"
+        if error_code:
+            result.status, result.passed = "execution_error", False
+            evidence = assertion_results(config.expected_status, config.assertions)
+        result.request_data = scrub(data, hidden)
+        result.url = scrub(result.url, hidden)
+        result.result_data = {"version": 1, "case_name": scrub(getattr(case, "name", case.id), hidden),
+                              "expected_status": config.expected_status, "error_code": error_code,
+                              "assertion_results": redact_assertions(evidence, hidden)}
+        if result.response_body is not None:
+            encoded = result.response_body.encode()
+            if len(encoded) > MAX_RESPONSE_BYTES:
+                result.response_body = encoded[:MAX_RESPONSE_BYTES].decode("utf-8", errors="ignore")
+                result.result_data["response_body_truncated"] = True
         result.duration_ms = max(0, int((time.monotonic() - started) * 1000))
         return result
+
+    async def _request(self, endpoint, base_url, config, url):
+        async with asyncio.timeout(CASE_TIMEOUT):
+            await asyncio.to_thread(validate_base_url, base_url)
+            await asyncio.to_thread(resolve_target, url, False)
+            async with httpx.AsyncClient(transport=self.transport_factory(), timeout=CASE_TIMEOUT,
+                    follow_redirects=False, trust_env=False) as client:
+                return await fetch_limited(client, endpoint.method, url, max_bytes=MAX_RESPONSE_BYTES,
+                    params=config.request_data.query, headers=config.request_data.headers,
+                    **({"json": config.request_data.json_body} if config.request_data.json_body is not None else {}))

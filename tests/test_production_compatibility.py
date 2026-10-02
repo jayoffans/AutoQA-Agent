@@ -81,7 +81,7 @@ def test_empty_database_cli_migration_chain_tables_constraints(compat_settings):
     engine = create_engine(settings.database_url, hide_parameters=True)
     try:
         assert inspect(engine).get_table_names() == []
-        for revision in ("0001_legacy", "0002_product", "0003_auth", "0004_onboarding", "0005_provider_center", "0006_api_import", "0007_test_planner", "0008_api_execution"):
+        for revision in ("0001_legacy", "0002_product", "0003_auth", "0004_onboarding", "0005_provider_center", "0006_api_import", "0007_test_planner", "0008_api_execution", "0009_execution_assertions"):
             cli_migrate(settings, revision)
             with engine.connect() as connection:
                 assert connection.scalar(text("SELECT version_num FROM alembic_version")) == revision
