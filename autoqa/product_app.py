@@ -68,6 +68,7 @@ from .studio_models import CaseRow, FindingRow, ProjectRow, RunRow, TaskMetadata
 from .target_network import PublicPolicy, fetch_limited, resolve_target
 from .test_execution_api import router as test_execution_router
 from .test_plan_api import router as test_plan_router
+from .test_report_api import router as test_report_router
 
 ROOT = Path(__file__).parent
 
@@ -91,6 +92,7 @@ def create_product_app(settings):
         app.state.store = store
         app.state.gateway = ProviderGateway(store.engine, box, settings)
         app.state.api_executor = ApiExecutor()
+        app.state.report_analysis_in_flight = set()
         app.state.runner = ProductRunner(settings, store, app.state.gateway, SQLCheckpointSaver(store.engine), box)
         try:
             yield
@@ -104,6 +106,7 @@ def create_product_app(settings):
     app.include_router(api_import_router)
     app.include_router(test_plan_router)
     app.include_router(test_execution_router)
+    app.include_router(test_report_router)
     attempts = defaultdict(deque)
     task_locks = WeakValueDictionary()
 

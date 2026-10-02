@@ -14,6 +14,9 @@ const planningProjects = new Set();
 const executingPlans = new Set();
 const apiRunSelections = new Map();
 let apiRunRenderVersion = 0;
+let reportRunId = '', reportData = null, reportRenderVersion = 0;
+const reportSelection = new Set(), reportEvidence = new Map();
+let reportAnalyzing = false;
 const views = ['dashboard','projects','tasks','workflow','findings','reports','model'];
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => $('toast').hidden = true, 5000); }
 async function api(path, method = 'GET', body) {
@@ -44,6 +47,7 @@ function resetIdentity() {
   onboarding=null; providerConfigs=[];
   apiModeProject=''; apiNotice=null;
   plannerDetailId=''; plannerSpecId=''; apiRunSelections.clear(); apiRunRenderVersion++;
+  reportRunId=''; reportData=null; reportSelection.clear(); reportEvidence.clear(); reportRenderVersion++; reportAnalyzing=false;
   selectedTask=''; selectedProject=''; detail=null; currentView='dashboard'; authMode='login';
   clearPasswords(); $('dialog').close(); $('dialog').innerHTML='';
 }
@@ -76,11 +80,14 @@ function routeView() {
   const requested = location.hash.slice(1), modelPage = ['model','settings/providers'].includes(requested);
   const planPage = requested.match(/^projects\/([A-Za-z0-9-]+)\/test-plans\/([A-Za-z0-9-]+)$/);
   const apiPage = requested.match(/^projects\/([A-Za-z0-9-]+)\/api-testing$/) || planPage;
+  const reportPage = requested.match(/^test-runs\/([A-Za-z0-9-]+)\/report$/);
+  if (reportRunId !== (reportPage?.[1] || '')) reportAnalyzing=false;
+  reportRunId = reportPage?.[1] || '';
   plannerDetailId = planPage?.[2] || '';
   apiModeProject = apiPage?.[1] || '';
   if (apiPage) selectedProject = apiPage[1];
-  currentView = needsOnboarding() && !(onboarding.step===2 && modelPage) ? 'onboarding' : modelPage ? 'model' : apiPage ? 'projects' : views.includes(requested) ? requested : 'dashboard';
-  const hash = currentView==='model' ? 'settings/providers' : apiPage && currentView==='projects' ? requested : currentView;
+  currentView = needsOnboarding() && !(onboarding.step===2 && modelPage) ? 'onboarding' : modelPage ? 'model' : reportPage ? 'reports' : apiPage ? 'projects' : views.includes(requested) ? requested : 'dashboard';
+  const hash = currentView==='model' ? 'settings/providers' : (apiPage && currentView==='projects') || (reportPage && currentView==='reports') ? requested : currentView;
   if (location.hash !== '#'+hash) history.replaceState(null, '', '#'+hash);
 }
 function renderOnboarding() {
@@ -121,7 +128,7 @@ function render() {
   $('page-title').textContent = t(plannerDetailId?'plannerDetail':apiModeProject?'apiTesting':currentView);
   const owner = me.workspaces.find(w=>w.id===workspace)?.role === 'owner';
   let content = `<div class="page-heading"><div><h1>${text(plannerDetailId?'plannerDetail':apiModeProject?'apiTesting':currentView)}</h1><p>${text(plannerDetailId?'plannerDetailHint':apiModeProject?'apiSpecHint':'productNote')}</p></div>${apiModeProject?'':currentView==='model'?(owner?button('addModel','add-model','','primary'):''):button(currentView==='projects'?'newProject':'newTask',currentView==='projects'?'new-project':'new-task','','primary')}</div>`;
-  if (!model.configured && currentView !== 'model' && !apiModeProject) content += `<div class="product-notice">${text('modelMissing')} ${button('goModel','model')}</div>`;
+  if (!model.configured && currentView !== 'model' && !apiModeProject && !reportRunId) content += `<div class="product-notice">${text('modelMissing')} ${button('goModel','model')}</div>`;
   if (currentView === 'dashboard') {
     if (model.configured) content += `<div class="product-notice model-state" role="status">${text(providerConfigs.find(p=>p.is_active)?.status==='connected'?'modelConnected':'modelConfigured')} ${esc(model.model)} ${button('model','model')}</div>`;
     content += `<section class="panel product-panel"><h2>${text('welcomeBack')}：${esc(me.nickname)}</h2><p>${text('currentWorkspace')}：${esc(me.workspaces.find(w=>w.id===workspace)?.name)}</p></section>`;
@@ -141,11 +148,15 @@ function render() {
     const findings = tasks.flatMap(row=>row.findings.map(f=>({...f, task:row})));
     content += findings.length ? findings.map(f=>`<article class="finding"><h2>${esc(f.title)}</h2><p>${text('severity')}: ${text(f.severity)} · ${text('unconfirmed')}</p><p>${text('affected')}: ${esc(f.evidence?.affected || f.task.request.target_url)}</p><h3>${text('aiSuggestion')}</h3><p>${esc(f.suggestion)}</p><details><summary>${text('findingEvidence')}</summary><pre>${json(f.evidence)}</pre></details>${button('view','task',f.task.id)}</article>`).join('') : empty('noFindings');
   } else if (currentView === 'reports') {
+    if (reportRunId) content = '<div id="api-quality-report" aria-live="polite"></div>';
+    else {
     const reports = tasks.filter(row=>row.report);
     content += reports.length ? `<p>${text('reportNote')}</p>${table(reports)}` : empty('noReports');
     if (detail?.report) content += `<section class="panel product-panel"><h2>${esc(detail.title)}</h2>${button('downloadReport','report',detail.id)}</section>`;
+    }
   } else if (currentView === 'workflow') content += workflowView();
   $('content').innerHTML = content;
+  if (reportRunId) loadApiReport(reportRunId).catch(e=>toast(e.message));
 }
 function modelForm() {
   const role = me.workspaces.find(w=>w.id===workspace)?.role;
@@ -249,7 +260,7 @@ async function renderApiRuns(planId,version=identityVersion,runs) {
   const open=new Set([...element.querySelectorAll('details[open][data-execution-id]')].map(d=>d.dataset.executionId));
   element.innerHTML=`<h2>${text('executionRuns')}</h2>${runs.length?`<label>${text('executionSelectRun')}<select id="api-run-selector">${runs.map(r=>`<option value="${esc(r.id)}" ${r.id===selectedId?'selected':''}>${date(r.started_at)} · ${esc(r.id.slice(0,8))} · ${text(r.summary.status || r.status)}</option>`).join('')}</select></label>`:`<p>${text('executionNoRuns')}</p>`}
     ${runs.map(r=>`<p class="api-run-summary" data-run-id="${esc(r.id)}">${summary(r)} · ${date(r.started_at)}</p>`).join('')}
-    ${selected?`<section class="api-selected-run" data-run-id="${esc(selected.id)}"><h3>${text('executionDetail')} · ${esc(selected.id)}</h3><p>${summary(selected)}</p><p>${text('executionStarted')}: ${date(selected.started_at)} · ${text('executionFinished')}: ${date(selected.finished_at)}</p>${selected.summary.classification_inferred?`<p>${text('executionLegacy')}</p>`:''}${selected.status==='interrupted'?`<p>${text('executionInterrupted')}</p>`:''}<p>${text('executionRerunHint')}</p><button type="button" data-action="rerun-api-run" data-id="${esc(selected.id)}" ${blocked || selected.status==='running'?'disabled':''}>${text('executionRerun')}</button>
+    ${selected?`<section class="api-selected-run" data-run-id="${esc(selected.id)}"><h3>${text('executionDetail')} · ${esc(selected.id)}</h3><p>${summary(selected)}</p><p>${text('executionStarted')}: ${date(selected.started_at)} · ${text('executionFinished')}: ${date(selected.finished_at)}</p>${selected.summary.classification_inferred?`<p>${text('executionLegacy')}</p>`:''}${selected.status==='interrupted'?`<p>${text('executionInterrupted')}</p>`:''}<p>${text('executionRerunHint')}</p><button type="button" data-action="rerun-api-run" data-id="${esc(selected.id)}" ${blocked || selected.status==='running'?'disabled':''}>${text('executionRerun')}</button>${selected.status!=='running'?button('qualityView','view-api-report',selected.id):''}
     ${selected.executions.map(e=>`<details class="api-execution" data-execution-id="${esc(e.id)}" ${open.has(e.id)?'open':''}><summary>${esc(e.result_data?.case_name || e.case_id)} · ${esc(e.method)} ${esc(e.url)} · HTTP ${esc(e.response_status ?? '—')} · ${text(e.status)} · ${e.duration_ms} ms</summary>${e.classification_inferred?`<p>${text('executionLegacy')}</p>`:''}<p>${esc(e.result_data?.error_code || '')} ${esc(e.error_message)}</p><h4>${text('executionRequest')}</h4><pre>${json(e.request_data)}</pre><h4>${text('executionResponse')}</h4><pre>${esc(e.response_body)}</pre>${e.result_data?.response_body_truncated?`<p>${text('executionEvidenceTruncated')}</p>`:''}<h4>${text('executionAssertionResults')}</h4>${e.result_data?`<pre>${json(e.result_data.assertion_results)}</pre>`:`<p>${text('executionLegacyEvidence')}</p>`}</details>`).join('')}</section>`:''}`;
   const control=document.querySelector('[data-action="execute-api-plan"]');
   if(control) control.disabled=control.dataset.approved!=='true' || blocked || !!document.querySelector('[data-action="approve-api-plan"]');
@@ -265,6 +276,57 @@ async function approveApiPlan(planId) {
   await plannerDetail(planId,selectedProject);
   toast(t('plannerStatus_approved'));
 }
+async function loadApiReport(runId) {
+  const version=identityVersion, revision=++reportRenderVersion;
+  const data=await api(`/api/test-runs/${runId}/report`);
+  if(version!==identityVersion || revision!==reportRenderVersion || reportRunId!==runId || !$('api-quality-report')) return;
+  if(reportData?.metadata.run_id!==runId) {
+    reportSelection.clear(); reportEvidence.clear();
+    data.findings.slice(0,3).forEach(f=>reportSelection.add(f.source_execution_id));
+  }
+  reportData=data; drawApiReport();
+}
+function drawApiReport() {
+  if(!reportData || !$('api-quality-report')) return;
+  const d=reportData,s=d.summary,m=d.metadata;
+  const finding=f=>`<article class="panel product-panel quality-finding" data-finding-id="${esc(f.id)}"><div class="progress-heading"><h3>${esc(f.title)}</h3><span class="badge ${esc(f.severity)}">${text(f.severity)}</span></div><label class="quality-pick"><input class="quality-selection" type="checkbox" value="${esc(f.source_execution_id)}" ${reportSelection.has(f.source_execution_id)?'checked':''}>${text('qualitySelect')}</label><p>${text('severity')}: ${text(f.severity)} · ${esc(f.severity_reason)} · ${text('plannerCategory_'+f.category)}</p><p>${text('qualityRoot')}</p><h4>${text('expected')}</h4><pre>${esc(f.expected)}</pre><h4>${text('actual')}</h4><pre>${esc(f.actual)}</pre>${f.expected_truncated || f.actual_truncated?`<p>${text('executionEvidenceTruncated')}</p>`:''}<p>${esc(f.recommendation)}</p>${qualityEvidence(f.source_execution_id)}${qualityAnalysis(d.analysis[f.source_execution_id])}</article>`;
+  $('api-quality-report').innerHTML=`<section class="panel product-panel"><div class="progress-heading"><h1>${text('qualityTitle')}</h1>${button('plannerBack','quality-back',m.plan_id)}</div><p>${esc(m.project_name)} · ${text('plan')}: ${esc(m.plan_id)}</p><p>Run: ${esc(m.run_id)} · Report: ${esc(d.id)}</p><p>${text('qualityCreated')}: ${date(m.created_at)} · ${text('executionStarted')}: ${date(m.started_at)} · ${text('executionFinished')}: ${date(m.finished_at)}</p>${s.incomplete?`<p class="product-notice">${text('qualityIncomplete')}</p>`:''}${s.classification_inferred?`<p>${text('executionLegacy')}</p>`:''}<div class="metrics quality-metrics">${metric('qualityTotal',s.total_cases)}${metric('passed',s.passed_cases)}${metric('failed',s.failed_cases)}${metric('execution_error',s.execution_error_cases)}${metric('executionPending',s.pending_cases)}${metric('qualityPassRate',s.pass_rate===null?'—':s.pass_rate.toFixed(2)+'%')}${metric('duration',s.duration_ms===null?'—':s.duration_ms+' ms')}</div><p>${text('qualityRateNote')}</p><div class="button-row">${button('qualityHtml','quality-export','html')}${button('qualityMarkdown','quality-export','md')}</div></section>
+    <section class="panel product-panel"><h2>${text('scope')}</h2><p>${text('qualityExecuted')}: ${d.scope.executed_cases}</p><ul class="quality-endpoints">${d.scope.tested_endpoints.map(e=>`<li><strong>${esc(e.method)}</strong> <span class="mono">${esc(e.path)}</span></li>`).join('')}</ul>${plannerCounts(d.scope.case_categories)}<h3>${text('qualityCases')}</h3>${d.cases.map(c=>`<details class="quality-case"><summary>${esc(c.case_name)} · ${esc(c.method)} ${esc(c.endpoint)} · ${text(c.status==='pending'?'executionPending':c.status)}</summary><pre>${json(c)}</pre>${c.execution_id?qualityEvidence(c.execution_id):''}</details>`).join('')}</section>
+    <section class="panel product-panel quality-ai-controls"><h2>${text('qualityAI')}</h2><p>${text('qualityRoot')}</p><p>${text('qualityCost')}</p><p>${text('qualityMax')} · ${text('qualityCache')}</p>${!model.configured?`<p>${text('qualityNoProvider')}</p>${button('goModel','model')}`:''}<div class="button-row"><button type="button" class="primary" data-action="quality-analyze" ${!model.configured || reportAnalyzing?'disabled':''}>${text('qualityAnalyze')}</button><button type="button" data-action="quality-reanalyze" ${!model.configured || reportAnalyzing?'disabled':''}>${text('qualityRefresh')}</button></div></section>
+    <section class="quality-failures"><h2>${text('qualityFailures')}</h2>${d.findings.filter(f=>f.kind==='failed').map(finding).join('') || `<p>${text('qualityNone')}</p>`}</section><section class="quality-errors"><h2>${text('qualityErrors')}</h2>${d.findings.filter(f=>f.kind==='execution_error').map(finding).join('') || `<p>${text('qualityNone')}</p>`}</section>`;
+}
+function qualityEvidence(id) {
+  return `<details class="quality-evidence" data-quality-execution="${esc(id)}"><summary>${text('findingEvidence')}</summary><div class="quality-evidence-content">${reportEvidence.has(id)?`<pre>${json(reportEvidence.get(id))}</pre>`:`<p>${text('qualityEvidenceLoad')}</p>`}</div></details>`;
+}
+function qualityAnalysis(a) {
+  return a?`<aside class="quality-ai"><h4>${text('qualityAI')}</h4><p>${text('qualityRoot')}</p><p>${text('qualityAnalyzed')}: ${date(a.generated_at)} · ${esc(a.provider)} / ${esc(a.model)}</p><h5>${text('qualityAnalysis')}</h5><p>${esc(a.analysis_summary)}</p><h5>${text('qualityCauses')}</h5><pre>${json(a.possible_causes)}</pre><h5>${text('qualitySuggestions')}</h5><pre>${json(a.recommendations)}</pre><p>${text('qualityConfidence')}: ${esc(a.confidence)} · ${text('qualitySuggestedSeverity')}: ${esc(a.suggested_severity || '—')}</p></aside>`:'';
+}
+function showAnalysisDialog(refresh) {
+  if(!reportSelection.size || reportSelection.size>3) throw Error(t('qualityMax'));
+  const count=[...reportSelection].filter(id=>refresh || !reportData.analysis[id]).length;
+  $('dialog').innerHTML=`<div class="dialog-body"><h2>${text(refresh?'qualityRefresh':'qualityAnalyze')}</h2><p>${text('qualityCost')}</p><p>${esc(t('qualitySelected',{selected:reportSelection.size,new:count}))}</p><p>${text('qualityRoot')}</p><div class="button-row">${button('cancel','close')}<button type="button" class="primary" data-action="quality-confirm-analysis" data-refresh="${refresh}">${text('qualityConfirm')}</button></div></div>`;
+  $('dialog').showModal();
+}
+async function analyzeReport(refresh) {
+  const runId=reportRunId,version=identityVersion,ids=[...reportSelection];
+  if(reportAnalyzing) return;
+  reportAnalyzing=true; $('dialog').close(); drawApiReport();
+  try {
+    const data=await api(`/api/test-runs/${runId}/analyze`,'POST',{execution_ids:ids,refresh});
+    if(version===identityVersion && runId===reportRunId) { reportData=data; drawApiReport(); }
+  } finally { if(version===identityVersion && runId===reportRunId) { reportAnalyzing=false; drawApiReport(); } }
+}
+document.addEventListener('toggle',async event=>{
+  const element=event.target,id=element.dataset?.qualityExecution;
+  if(!id || !element.open || reportEvidence.has(id)) return;
+  const runId=reportRunId,version=identityVersion;
+  try {
+    const evidence=await api(`/api/test-runs/${runId}/executions/${id}`);
+    if(version!==identityVersion || reportRunId!==runId || !element.isConnected) return;
+    reportEvidence.set(id,evidence);
+    element.querySelector('.quality-evidence-content').innerHTML=`<pre>${json(evidence)}</pre>`;
+  } catch(error) { if(version===identityVersion && runId===reportRunId) toast(error.message); }
+},true);
 async function executeApiPlan(planId,runId=null) {
   const key=workspace+':'+planId,version=identityVersion,projectId=selectedProject;
   if(executingPlans.has(key)) return;
@@ -316,11 +378,14 @@ function formData(form) { return Object.fromEntries(new FormData(form).entries()
 function parse(value) { try { return JSON.parse(value); } catch { throw Error(t('invalidJson')); } }
 function clearPasswords() { document.querySelectorAll('input[type=password]').forEach(input=>input.value=''); }
 async function download(path) {
+  const version=identityVersion;
   let response = await fetch(path,{headers:{'X-Workspace-ID':workspace},credentials:'same-origin'});
-  if (response.status===401) { await api('/api/auth/me'); response=await fetch(path,{headers:{'X-Workspace-ID':workspace},credentials:'same-origin'}); }
+  if (response.status===401) { await api('/api/auth/me'); if(version!==identityVersion) throw Error(t('requestFailed')); response=await fetch(path,{headers:{'X-Workspace-ID':workspace},credentials:'same-origin'}); }
   if (!response.ok) throw Error(t('requestFailed'));
-  const blobUrl = URL.createObjectURL(await response.blob());
-  const link = document.createElement('a'); link.href=blobUrl; link.download=path.split('/').at(-1)==='report'?'autoqa-report.html':path.split('/').at(-1); link.click();
+  const blob=await response.blob();
+  if(version!==identityVersion) throw Error(t('requestFailed'));
+  const blobUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a'); link.href=blobUrl; link.download=response.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1] || (path.split('/').at(-1)==='report'?'autoqa-report.html':path.split('/').at(-1)); link.click();
   setTimeout(()=>URL.revokeObjectURL(blobUrl),10000);
 }
 document.addEventListener('submit', async event=>{
@@ -373,6 +438,12 @@ document.addEventListener('click', async event=>{
     else if (action==='approve-api-plan') await approveApiPlan(id);
     else if (action==='execute-api-plan') await executeApiPlan(id);
     else if (action==='rerun-api-run') await executeApiPlan(plannerDetailId,id);
+    else if (action==='view-api-report') location.hash=`test-runs/${id}/report`;
+    else if (action==='quality-back') location.hash=`projects/${reportData.metadata.project_id}/test-plans/${id}`;
+    else if (action==='quality-export') await download(`/api/test-runs/${reportRunId}/report.${id}`);
+    else if (action==='quality-analyze') showAnalysisDialog(false);
+    else if (action==='quality-reanalyze') showAnalysisDialog(true);
+    else if (action==='quality-confirm-analysis') await analyzeReport(control.dataset.refresh==='true');
     else if (action==='back-project') { selectedProject=id; location.hash='projects'; }
     else if (action==='delete-api-spec' && confirm(t('confirmDeleteApiSpec'))) { const projectId=selectedProject;
       await api(`/api/projects/${projectId}/api-specs/${encodeURIComponent(id)}`,'DELETE'); apiNotice=null; await apiTesting(projectId); toast(t('deleted')); }
@@ -403,10 +474,11 @@ document.addEventListener('click', async event=>{
   } catch(error) { toast(error.message); } finally { control.disabled=false; }
 });
 document.addEventListener('change', async event=>{
+  if(event.target.classList.contains('quality-selection')) { if(event.target.checked && reportSelection.size>=3) { event.target.checked=false; toast(t('qualityMax')); } else if(event.target.checked) reportSelection.add(event.target.value); else reportSelection.delete(event.target.value); return; }
   if(event.target.id==='api-run-selector') { apiRunSelections.set(workspace+':'+plannerDetailId,event.target.value); await renderApiRuns(plannerDetailId).catch(e=>toast(e.message)); return; }
   try {
     if (event.target.id==='language') { await loadLocale(event.target.value); shell(); if (currentView==='projects' && selectedProject) await projectDetail(selectedProject); }
-    else if (event.target.id==='workspace-selector') { identityVersion++; workspace=event.target.value; selectedProject=''; selectedTask=''; detail=null; projects=[]; tasks=[]; stats={}; model={}; providerConfigs=[]; apiModeProject=''; apiNotice=null; plannerDetailId=''; plannerSpecId=''; apiRunSelections.clear(); apiRunRenderVersion++; if(location.hash.includes('/api-testing') || location.hash.includes('/test-plans/')) history.replaceState(null,'','#projects'); clearPasswords(); $('dialog').close(); $('dialog').innerHTML=''; render(); await refresh(); }
+    else if (event.target.id==='workspace-selector') { identityVersion++; workspace=event.target.value; selectedProject=''; selectedTask=''; detail=null; projects=[]; tasks=[]; stats={}; model={}; providerConfigs=[]; apiModeProject=''; apiNotice=null; plannerDetailId=''; plannerSpecId=''; apiRunSelections.clear(); apiRunRenderVersion++; reportRunId=''; reportData=null; reportSelection.clear(); reportEvidence.clear(); reportRenderVersion++; reportAnalyzing=false; if(location.hash.includes('/api-testing') || location.hash.includes('/test-plans/') || location.hash.includes('test-runs/')) history.replaceState(null,'','#projects'); clearPasswords(); $('dialog').close(); $('dialog').innerHTML=''; render(); await refresh(); }
     else if (event.target.id==='task-project') await taskEndpoints(event.target.value);
     else if (event.target.id==='planner-spec') plannerSpecId=event.target.value;
     else if (event.target.name==='project_type' && event.target.form?.id==='project-form') { event.target.form.elements.url.required=event.target.value==='web'; }
@@ -427,6 +499,7 @@ onboarding=me?.onboarding || null;
 shell();
 if (me) await refresh().catch(error=>toast(error.message));
 setInterval(async()=>{
+  if(reportRunId) return;
   if(me && plannerDetailId && !pollBusy && !$('dialog').open) {
     pollBusy=true; try { await renderApiRuns(plannerDetailId); } catch(error) { toast(error.message); } finally { pollBusy=false; }
     return;

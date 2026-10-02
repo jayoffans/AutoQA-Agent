@@ -406,7 +406,7 @@ def test_legacy_database_migration_preserves_data_and_mode_refuses_reuse(tmp_pat
     with engine.connect() as connection:
         row = connection.execute(text("SELECT name,workspace_id FROM projects")).one()
         assert row == ("Login API Quality Demo", None)
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0009_execution_assertions"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0010_api_reports"
         assert connection.execute(text("SELECT project_id FROM task_metadata")).scalar() == "legacy"
     for table in ["users", "workspaces", "workspace_members", "provider_configs", "environment_configs"]:
         assert inspect(engine).has_table(table)

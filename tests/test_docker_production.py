@@ -129,7 +129,7 @@ def test_docker_build_container_nonroot_and_health(docker_product):
     status = checked_process(["docker", "inspect", "--format", "{{.State.Health.Status}}", container]).decode().strip()
     assert status == "healthy"
     current = live["command"]("exec", "-T", "autoqa", "python", "-m", "alembic", "current").decode()
-    assert "0009_execution_assertions" in current
+    assert "0010_api_reports" in current
 
 
 def test_docker_all_required_environment_variables_reach_settings(docker_product):

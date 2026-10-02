@@ -370,3 +370,23 @@ Phase 6-2-B 专项测试位于 `tests/test_provider_center.py`、`tests/test_pro
 认证、刷新轮换、并发刷新、跨用户资源隔离及真实 Chromium 双用户流程的本轮结果见 [Phase 6-1 报告](docs/phase6-1.md)。MySQL CI 还验证带 Phase 5 用户、工作区和项目的升级及重新登录。没有真实模型依赖。
 
 完整结果、未实际验收项目和上线前缺项见 [Phase 5 报告](docs/phase5.md) 和 [Phase 6-1 报告](docs/phase6-1.md)。
+
+
+## API Quality Report — Phase 6-2-C-1-E
+
+API Run 结束后可点击“查看测试报告”，查看确定性 Summary、Scope、Failure Findings 和独立 Execution Error Findings。
+报告直接复用已保存的 Execution / Assertion facts；通过率为 passed / total，执行错误与未执行项也计入分母。
+一个终态 Run 对应一个稳定报告，Interrupted Run 展示 partial / pending；Rerun 生成独立报告。
+
+无需模型即可查看报告、展开已脱敏证据并导出 HTML / Markdown。报告与导出保留裁剪标记，不重新获取目标响应或解密审核凭据。
+旧 Studio / Demo 的 Task 报告与 Finding 保持原有接口和行为。
+
+可选“AI 分析失败原因”使用当前工作区 Provider Gateway，每次最多选择 3 个 Finding。
+调用前提示模型费用；默认复用成功分析，重新分析需显式确认。AI 只提供可能原因和建议，
+不改变执行事实或确定性 Severity，始终标记 Root Cause Not Confirmed。
+
+新增接口：GET `/api/test-runs/{run_id}/report`、`/findings`、`/executions/{execution_id}`、`/report.html`、`/report.md`，
+以及 POST `/api/test-runs/{run_id}/analyze`（`execution_ids`，可选 `refresh=false`）。
+存储复用 `reports` 表，增量 migration `0010_api_reports` 不改写旧报告或执行事实。
+
+验收与限制见 [Phase E 报告](docs/phase6-2c-1e.md)。CI 只使用假 Provider / transport，不调用真实模型。
