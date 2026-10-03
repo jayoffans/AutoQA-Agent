@@ -9,6 +9,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from .crypto import mask_key
+from .planner_diagnostics import numeric_usage
 from .product_models import OnboardingRow, ProviderConfigRow, SessionRow, WorkspaceRow
 from .providers import CompatibleProvider, DeepSeekProvider, OpenAIProvider, ProviderError
 from .store_base import now
@@ -232,7 +233,7 @@ class ProviderGateway:
                 if transient and transient["encrypted_api_key"] == config["encrypted_api_key"]:
                     transient["connection_status"] = status
 
-    async def generate(self, workspace, session_hash, system, context, schema, override=None):
+    async def generate(self, workspace, session_hash, system, context, schema, override=None, *, on_metadata=None):
         config = override or self.config(workspace, session_hash)
         if config["provider"] not in {"openai", "deepseek", "compatible"}:
             raise ProviderError("Production does not permit MockProvider")
@@ -260,3 +261,7 @@ class ProviderGateway:
                 provider.key = ""
             settings.provider_key = ""
             key = None
+            if on_metadata is not None:
+                on_metadata({"model_request_count": provider.model_request_count if provider else 0,
+                             "completed_model_requests": provider.completed_model_requests if provider else 0,
+                             "usage": numeric_usage(provider.usage) if provider else None})

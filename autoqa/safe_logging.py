@@ -4,6 +4,8 @@ import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
 
+from .planner_diagnostics import PlannerDiagnostics
+
 _private_http = ContextVar("private_api_http", default=False)
 
 
@@ -33,9 +35,17 @@ def private_http_logs():
 
 class SafeFormatter(logging.Formatter):
     def format(self, record):
-        return json.dumps({"level": record.levelname, "logger": record.name,
+        value = {"level": record.levelname, "logger": record.name,
                            "event": getattr(record, "event", "service_event"),
-                           "exception_type": record.exc_info[0].__name__ if record.exc_info else None})
+                           "exception_type": record.exc_info[0].__name__ if record.exc_info else None}
+        diagnostics = getattr(record, "planner_diagnostics", None)
+        if value["event"] == "planner_generation" and isinstance(diagnostics, PlannerDiagnostics):
+            # Revalidate to reject invalid assignments and unknown fields, without logging errors/inputs.
+            try:
+                value["planner"] = PlannerDiagnostics.model_validate(diagnostics.model_dump(warnings=False)).public()
+            except (ValueError, TypeError):
+                pass
+        return json.dumps(value)
 
 
 def configure_logging():

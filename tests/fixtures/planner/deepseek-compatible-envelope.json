@@ -1,0 +1,28 @@
+{
+  "_fixture": {
+    "label": "reconstructed fixture",
+    "provenance": "Synthetic, sanitized cases in a DeepSeek/OpenAI-compatible envelope. Not the retained original Alpha response.",
+    "usage": "Static numeric values observed for Alpha attempt 2 batch 1; fixture replay is not a real model call."
+  },
+  "id": "synthetic-chat-completion",
+  "object": "chat.completion",
+  "created": 0,
+  "model": "deepseek-chat",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"cases\":[{\"endpoint_id\":\"00000000-0000-4000-8000-000000000001\",\"name\":\"Synthetic positive\",\"category\":\"positive\",\"priority\":\"P1\",\"description\":\"Synthetic contract review; assumptions require human confirmation.\",\"steps\":[\"Prepare synthetic data\",\"Review the documented response\"],\"expected_result\":\"The documented contract is satisfied; otherwise confirm the assumption.\"},{\"endpoint_id\":\"00000000-0000-4000-8000-000000000001\",\"name\":\"Synthetic negative\",\"category\":\"negative\",\"priority\":\"P1\",\"description\":\"Synthetic contract review; assumptions require human confirmation.\",\"steps\":[\"Prepare synthetic data\",\"Review the documented response\"],\"expected_result\":\"The documented contract is satisfied; otherwise confirm the assumption.\"},{\"endpoint_id\":\"00000000-0000-4000-8000-000000000001\",\"name\":\"Synthetic boundary\",\"category\":\"boundary\",\"priority\":\"P1\",\"description\":\"Synthetic contract review; assumptions require human confirmation.\",\"steps\":[\"Prepare synthetic data\",\"Review the documented response\"],\"expected_result\":\"The documented contract is satisfied; otherwise confirm the assumption.\"},{\"endpoint_id\":\"00000000-0000-4000-8000-000000000001\",\"name\":\"Synthetic security\",\"category\":\"security\",\"priority\":\"P1\",\"description\":\"Synthetic contract review; assumptions require human confirmation.\",\"steps\":[\"Prepare synthetic data\",\"Review the documented response\"],\"expected_result\":\"The documented contract is satisfied; otherwise confirm the assumption.\"},{\"endpoint_id\":\"00000000-0000-4000-8000-000000000002\",\"name\":\"Synthetic positive\",\"category\":\"positive\",\"priority\":\"P1\",\"description\":\"Synthetic contract review; assumptions require human confirmation.\",\"steps\":[\"Prepare synthetic data\",\"Review the documented response\"],\"expected_result\":\"The documented contract is satisfied; otherwise confirm the assumption.\"},{\"endpoint_id\":\"00000000-0000-4000-8000-000000000002\",\"name\":\"Synthetic negative\",\"category\":\"negative\",\"priority\":\"P1\",\"description\":\"Synthetic contract review; assumptions require human confirmation.\",\"steps\":[\"Prepare synthetic data\",\"Review the documented response\"],\"expected_result\":\"The documented contract is satisfied; otherwise confirm the assumption.\"},{\"endpoint_id\":\"00000000-0000-4000-8000-000000000002\",\"name\":\"Synthetic boundary\",\"category\":\"boundary\",\"priority\":\"P1\",\"description\":\"Synthetic contract review; assumptions require human confirmation.\",\"steps\":[\"Prepare synthetic data\",\"Review the documented response\"],\"expected_result\":\"The documented contract is satisfied; otherwise confirm the assumption.\"},{\"endpoint_id\":\"00000000-0000-4000-8000-000000000002\",\"name\":\"Synthetic security\",\"category\":\"security\",\"priority\":\"P1\",\"description\":\"Synthetic contract review; assumptions require human confirmation.\",\"steps\":[\"Prepare synthetic data\",\"Review the documented response\"],\"expected_result\":\"The documented contract is satisfied; otherwise confirm the assumption.\"}]}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 2252,
+    "completion_tokens": 2519,
+    "total_tokens": 4771,
+    "prompt_cache_hit_tokens": 2048,
+    "prompt_cache_miss_tokens": 204
+  }
+}

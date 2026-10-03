@@ -11,6 +11,7 @@ let onboarding = null, providerConfigs = [];
 let apiModeProject = '', apiNotice = null;
 let plannerDetailId = '', plannerSpecId = '';
 const planningProjects = new Set();
+const plannerFailures = new Map();
 const executingPlans = new Set();
 const apiRunSelections = new Map();
 let apiRunRenderVersion = 0;
@@ -37,12 +38,16 @@ async function api(path, method = 'GET', body) {
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     if (response.status === 401 && me && version === identityVersion) { resetIdentity(); shell(); }
-    throw Error(error.detail?.message || error.detail || t('requestFailed'));
+    const isPlanner = path.endsWith('/test-plans/generate') && !!error.detail?.code;
+    const failure = Error(isPlanner ? plannerFailure(error.detail) : error.detail?.message || error.detail || t('requestFailed'));
+    if (isPlanner) failure.planner = {plan_id:error.detail.plan_id, message:failure.message};
+    throw failure;
   }
   if (version !== identityVersion) throw Error(t('requestFailed'));
   return response.status === 204 ? null : response.json();
 }
 function resetIdentity() {
+  plannerFailures.clear();
   identityVersion++; me=null; workspace=''; csrf=''; projects=[]; tasks=[]; stats={}; model={};
   onboarding=null; providerConfigs=[];
   apiModeProject=''; apiNotice=null;
@@ -224,11 +229,14 @@ async function apiTesting(id) {
   if (version!==identityVersion || selectedProject!==id || apiModeProject!==id || plannerDetailId || !$('project-detail')) return;
   if (!specs.some(s=>s.id===plannerSpecId)) plannerSpecId=specs.at(-1)?.id || '';
   const busy=planningProjects.has(workspace+':'+id);
+  const failure=plannerFailures.get(workspace+':'+id);
   $('project-detail').innerHTML=`<section class="panel product-panel"><div class="progress-heading"><h2>${esc(projects.find(p=>p.id===id)?.name)}</h2>${button('backProject','back-project',id)}</div>
     <form id="api-spec-upload-form" data-project-id="${esc(id)}"><label>${text('apiChooseFile')}<input name="file" type="file" accept=".json,.yaml,.yml" required></label><p>${text('apiSpecHint')}</p><button class="primary" type="submit">${text('uploadApiSpec')}</button></form>
     ${apiNotice?.project_id===id?`<p class="api-import-success" role="status">${text('apiParsed')} · ${text('endpointCount')}: ${esc(apiNotice.count)}</p>`:''}
     <div class="progress-heading"><h3>${text('endpointCount')}: ${endpoints.length}</h3><button type="button" class="primary" data-action="generate-api-plan" data-id="${esc(id)}" ${!specs.length||!model.configured||busy?'disabled':''}>${text(busy?'plannerGenerating':'generatePlan')}</button></div>
-    ${specs.length?`<label>${text('plannerSpec')}<select id="planner-spec">${specs.map(s=>`<option value="${esc(s.id)}" ${s.id===plannerSpecId?'selected':''}>${esc(s.name)} · ${esc(s.version)}</option>`).join('')}</select></label>`:''}
+    ${specs.length?`<label>${text('plannerSpec')}<select id="planner-spec">${specs.map(s=>`<option value="${esc(s.id)}" data-endpoint-count="${esc(s.endpoint_count)}" ${s.id===plannerSpecId?'selected':''}>${esc(s.name)} · ${esc(s.version)}</option>`).join('')}</select></label>`:''}
+    <p id="planner-budget">${esc(plannerBudget(specs.find(s=>s.id===plannerSpecId)?.endpoint_count || 0))}</p>
+    ${failure?`<p class="planner-failure" role="alert">${esc(failure.message)}</p>`:''}
     <p class="planner-notice" role="status">${text(busy?'plannerGenerating':!model.configured?'plannerMissingModel':'plannerHint')}</p>${!model.configured?button('goModel','model'):''}</section>
     <section class="panel product-panel"><h2>${text('plannerPlans')}</h2>${plans.length?`<div class="planner-list">${plans.map(p=>`<article class="planner-card" data-plan-id="${esc(p.id)}"><div class="progress-heading"><h3>${date(p.created_at)}</h3><span class="badge ${esc(p.status)}">${text('plannerStatus_'+p.status)}</span></div><p>${esc(p.provider)} · ${esc(p.model)} · ${text('plannerCaseCount')}: ${p.case_count}</p>${plannerCounts(p.category_counts)}${p.status==='failed'?`<p>${text('plannerFailed')}</p>`:''}${button('view','view-api-plan',p.id)}</article>`).join('')}</div>`:`<p>${text('plannerEmpty')}</p>`}</section>
     <section class="panel product-panel"><h2>${text('apiDocuments')}</h2>${specs.length?`<ul class="api-spec-list">${specs.map(s=>`<li data-spec-id="${esc(s.id)}"><span><strong>${esc(s.name)}</strong> · ${esc(s.version)} · ${esc(s.format.toUpperCase())} · ${text('endpointCount')}: ${s.endpoint_count}</span>${button('delete','delete-api-spec',s.id)}</li>`).join('')}</ul>`:`<p>${text('apiNoDocuments')}</p>`}</section>
@@ -236,6 +244,31 @@ async function apiTesting(id) {
 }
 function plannerCounts(counts) {
   return `<div class="planner-counts">${['positive','negative','boundary','security'].map(key=>`<span>${text('plannerCategory_'+key)} <strong>${esc(counts[key] || 0)}</strong></span>`).join('')}</div>`;
+}
+function plannerBudget(count) {
+  return t('plannerBudget',{count,batch:2,calls:Math.ceil(count/2)});
+}
+function plannerFailure(detail) {
+  const codes=['json_parse','schema_validation','unknown_endpoint','duplicate_case','missing_category_coverage',
+    'endpoint_case_limit','context_too_large','provider_timeout','provider_failure','persistence_failure','planner_timeout'];
+  const code=codes.includes(detail.code)?detail.code:'planner_failure';
+  const messages=[t('plannerError_'+code),t('plannerZeroSaved')];
+  const categories=['positive','negative','boundary','security'];
+  for(const batch of detail.diagnostics?.batches || []) {
+    for(const endpoint of batch.endpoints || []) {
+      if(!batch.endpoint_ids?.includes(endpoint.endpoint_id)) continue;
+      if(code==='endpoint_case_limit' && endpoint.case_count>12) messages.push(t('plannerLimitDetail',{
+        endpoint:endpoint.endpoint_id,count:endpoint.case_count,limit:12}));
+      if(code==='missing_category_coverage' && endpoint.missing_categories?.length) messages.push(t('plannerCoverageDetail',{
+        endpoint:endpoint.endpoint_id,categories:endpoint.missing_categories.filter(c=>categories.includes(c)).map(c=>t('plannerCategory_'+c)).join(', ')}));
+    }
+  }
+  if(detail.diagnostics) {
+    const usage=detail.diagnostics.known_usage;
+    messages.push(t('plannerUsage',{status:t('plannerUsage_'+detail.diagnostics.usage_status),
+      tokens:Number.isInteger(usage?.total_tokens)?usage.total_tokens:t('plannerUsage_unknown')}));
+  }
+  return messages.join(' ');
 }
 async function plannerDetail(planId,projectId) {
   const version=identityVersion;
@@ -338,10 +371,14 @@ async function generateApiPlan(projectId) {
   const version=identityVersion, key=workspace+':'+projectId, specId=$('planner-spec')?.value;
   if(planningProjects.has(key)) return;
   planningProjects.add(key);
+  plannerFailures.delete(key);
   try {
     await apiTesting(projectId);
     const plan=await api(`/api/projects/${projectId}/test-plans/generate`,'POST',{api_spec_id:specId});
     if(version===identityVersion && apiModeProject===projectId && !plannerDetailId) location.hash=`projects/${projectId}/test-plans/${plan.id}`;
+  } catch(error) {
+    if(version===identityVersion && error.planner) plannerFailures.set(key,error.planner);
+    throw error;
   } finally {
     planningProjects.delete(key);
     if(version===identityVersion && apiModeProject===projectId && !plannerDetailId) await apiTesting(projectId);
@@ -480,7 +517,7 @@ document.addEventListener('change', async event=>{
     if (event.target.id==='language') { await loadLocale(event.target.value); shell(); if (currentView==='projects' && selectedProject) await projectDetail(selectedProject); }
     else if (event.target.id==='workspace-selector') { identityVersion++; workspace=event.target.value; selectedProject=''; selectedTask=''; detail=null; projects=[]; tasks=[]; stats={}; model={}; providerConfigs=[]; apiModeProject=''; apiNotice=null; plannerDetailId=''; plannerSpecId=''; apiRunSelections.clear(); apiRunRenderVersion++; reportRunId=''; reportData=null; reportSelection.clear(); reportEvidence.clear(); reportRenderVersion++; reportAnalyzing=false; if(location.hash.includes('/api-testing') || location.hash.includes('/test-plans/') || location.hash.includes('test-runs/')) history.replaceState(null,'','#projects'); clearPasswords(); $('dialog').close(); $('dialog').innerHTML=''; render(); await refresh(); }
     else if (event.target.id==='task-project') await taskEndpoints(event.target.value);
-    else if (event.target.id==='planner-spec') plannerSpecId=event.target.value;
+    else if (event.target.id==='planner-spec') { plannerSpecId=event.target.value; $('planner-budget').textContent=plannerBudget(Number(event.target.selectedOptions[0].dataset.endpointCount)); }
     else if (event.target.name==='project_type' && event.target.form?.id==='project-form') { event.target.form.elements.url.required=event.target.value==='web'; }
     else if (event.target.id==='provider-select') { const form=$('model-form'),provider=event.target.value; form.elements.base_url.value=provider==='deepseek'?'https://api.deepseek.com':provider==='openai'?'https://api.openai.com/v1':''; form.elements.model.value=provider==='deepseek'?'deepseek-chat':''; }
     else if (event.target.id==='openapi-file') { const file=event.target.files[0]; if (!file) return; if(file.size>1000000) throw Error(t('requestFailed')); await api(`/api/projects/${selectedProject}/openapi`,'POST',{content:await file.text()}); await projectDetail(selectedProject); toast(t('saved')); }

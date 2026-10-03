@@ -5,10 +5,11 @@ from uuid import uuid4
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, inspect, select, text
+from sqlalchemy import create_engine, event, func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from autoqa.app import create_app
 from autoqa.migrations import upgrade
 from autoqa.product_models import ApiEndpointRow, ApiSpecRow, WorkspaceRow
 from autoqa.product_models import TestCase as Case
@@ -19,7 +20,7 @@ from tests.test_api_import import SPEC, create_project
 from tests.test_production_compatibility import cli_migrate
 from tests.test_production_compatibility import compat as compat  # noqa: F401
 from tests.test_production_compatibility import compat_settings as compat_settings  # noqa: F401
-from tests.test_test_planner import mock_output
+from tests.test_test_planner import counted_output, mock_output
 
 
 def test_planner_additive_migration_preserves_spec_and_legacy_tables(compat_settings):
@@ -97,3 +98,66 @@ def test_planner_database_parity_and_scope_constraints(compat):
     with Session(client.app.state.store.engine) as session:
         assert session.get(ApiSpecRow, spec['id'])
     assert services.calls == []
+
+
+@pytest.mark.parametrize('failure', ['limit', 'coverage', 'persistence'])
+def test_planner_atomic_failure_manual_regeneration_restart_and_isolation(compat, failure):
+    client, services, settings = compat
+    register(client)
+    project = create_project(client)
+    prefix = '/api/projects/' + project['id']
+    document = json.loads(json.dumps(SPEC))
+    for i in range(4):
+        document['paths'][f'/extra-{i}/{{id}}'] = json.loads(json.dumps(SPEC['paths']['/users/{id}']))
+    uploaded = client.post(prefix + '/api-specs/upload', files={'file': ('six.json', json.dumps(document))})
+    assert uploaded.status_code == 201
+    assert client.put('/api/provider', json={'provider': 'compatible', 'base_url': services.url,
+        'api_key': random_key(), 'model': 'fake-planner'}).status_code == 200
+    calls, fail = [], [True]
+    def handler(request):
+        calls.append(request.url.path)
+        context = json.loads(json.loads(request.content)['messages'][1]['content'])
+        output = mock_output(context)
+        if fail[0] and len(calls) == 2:
+            if failure == 'limit':
+                output = counted_output(context, (13, 4))
+            elif failure == 'coverage':
+                output['cases'].pop()
+        return httpx.Response(200, json={'choices': [{'message': {'content': json.dumps(output)}}]})
+    client.app.state.gateway.transport_factory = lambda: httpx.MockTransport(handler)
+    def reject(*args):
+        if fail[0]:
+            raise RuntimeError('synthetic-storage-canary')
+    if failure == 'persistence':
+        event.listen(Case, 'before_insert', reject)
+    try:
+        first = client.post(prefix + '/test-plans/generate')
+        assert first.status_code == 502
+        expected = {'limit': 'endpoint_case_limit', 'coverage': 'missing_category_coverage',
+                    'persistence': 'persistence_failure'}[failure]
+        assert first.json()['detail']['code'] == expected
+        first_id = first.json()['detail']['plan_id']
+        with Session(client.app.state.store.engine) as session:
+            assert session.get(Plan, first_id).status == 'failed'
+            assert session.scalar(select(func.count()).select_from(Case)) == 0
+        assert len(calls) == (3 if failure == 'persistence' else 2)
+        fail[0] = False
+        second = client.post(prefix + '/test-plans/generate')
+        assert second.status_code == 201 and second.json()['case_count'] == 24
+        second_id = second.json()['id']
+        assert second_id != first_id
+        assert len(calls) == (6 if failure == 'persistence' else 5)
+        with TestClient(create_app(settings), base_url='https://testserver') as restarted:
+            restarted.cookies.update(client.cookies)
+            assert restarted.get('/api/test-plans/' + first_id).json()['status'] == 'failed'
+            assert restarted.get('/api/test-plans/' + first_id + '/cases').json() == []
+            assert restarted.get('/api/test-plans/' + second_id).json()['case_count'] == 24
+            assert restarted.get('/api/test-plans/' + second_id).json()['status'] == 'ready'
+        with TestClient(client.app, base_url='https://testserver') as foreign:
+            register(foreign)
+            assert foreign.get('/api/test-plans/' + first_id).status_code == 404
+            assert foreign.get('/api/test-plans/' + second_id + '/cases').status_code == 404
+        assert not services.calls
+    finally:
+        if failure == 'persistence':
+            event.remove(Case, 'before_insert', reject)

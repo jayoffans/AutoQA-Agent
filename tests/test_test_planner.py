@@ -12,9 +12,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from autoqa.app import create_app
+from autoqa.planner_diagnostics import PlannerDiagnostics
 from autoqa.product_models import ApiEndpointRow, ApiSpecRow
 from autoqa.product_models import TestCase as Case
 from autoqa.product_models import TestPlan as Plan
+from autoqa.safe_logging import SafeFormatter
 from autoqa.store import TaskRow
 from autoqa.test_planner import CATEGORIES, PlannerOutput, PlanningError, TestPlannerAgent
 from tests.test_api_import import SPEC, create_project, upload
@@ -233,7 +235,10 @@ def test_case_insert_failure_rolls_back_and_marks_failed(planner):
         raise RuntimeError(KEY)
     event.listen(Case, 'before_insert', reject)
     try:
-        assert generate(planner).status_code == 502
+        response = generate(planner)
+        assert response.status_code == 502
+        assert response.json()['detail']['code'] == 'persistence_failure'
+        assert response.json()['detail']['diagnostics']['persisted_case_count'] == 0
         assert counts(planner) == (1, 0, 0)
         assert planner.get(planner.prefix + '/test-plans').json()[0]['status'] == 'failed'
     finally:
@@ -339,3 +344,165 @@ def test_provider_http_failure_never_exposes_body(planner, status, caplog):
     assert response.status_code == 502
     assert counts(planner) == (1, 0, 0)
     assert KEY not in response.text and KEY not in caplog.text
+
+
+def counted_output(context, totals):
+    categories = sorted(CATEGORIES)
+    return {'cases': [{'endpoint_id': endpoint['endpoint_id'], 'name': f'contract case {i}',
+        'category': categories[i % 4], 'priority': 'P1', 'description': 'Synthetic contract scenario',
+        'steps': ['Review the request against the contract'], 'expected_result': 'Confirm the contract'}
+        for endpoint, total in zip(context['endpoints'], totals, strict=True) for i in range(total)]}
+
+
+def six_endpoints(client):
+    spec = copy.deepcopy(SPEC)
+    for i in range(4):
+        spec['paths'][f'/extra-{i}/{{id}}'] = copy.deepcopy(spec['paths']['/users/{id}'])
+    response = upload(client, spec=spec)
+    assert response.status_code == 201
+    return response.json()['spec']['id']
+
+
+@pytest.mark.parametrize('totals', [(4, 4), (5, 6), (8, 12), (12, 4), (12, 12)])
+def test_valid_quantities_remain_ready_without_exact_four_requirement(planner, totals):
+    planner.change_output = lambda output: counted_output({'endpoints': [
+        {'endpoint_id': output['cases'][0]['endpoint_id']}, {'endpoint_id': output['cases'][4]['endpoint_id']}]}, totals)
+    response = generate(planner)
+    assert response.status_code == 201
+    assert response.json()['status'] == 'ready'
+    assert response.json()['case_count'] == sum(totals)
+    assert len(planner.model_calls) == 1
+
+
+@pytest.mark.parametrize('scenario,code', [
+    ('missing-one', 'missing_category_coverage'), ('missing-many', 'missing_category_coverage'),
+    ('missing-endpoint', 'missing_category_coverage'), ('13+4', 'endpoint_case_limit'),
+    ('25', 'schema_validation'), ('json', 'json_parse'), ('category', 'schema_validation'),
+    ('unknown', 'unknown_endpoint'), ('duplicate', 'duplicate_case'),
+])
+def test_classified_validation_failures_and_safe_counts(planner, scenario, code, caplog):
+    canary = 'scenario-canary-never-in-diagnostics'
+    foreign = str(uuid4())
+    def change(output):
+        if scenario == 'json':
+            return canary
+        if scenario in {'13+4', '25'}:
+            output = counted_output({'endpoints': [{'endpoint_id': output['cases'][0]['endpoint_id']},
+                {'endpoint_id': output['cases'][4]['endpoint_id']}]}, (13, 4) if scenario == '13+4' else (13, 12))
+        elif scenario == 'missing-one':
+            output['cases'].pop()
+        elif scenario == 'missing-many':
+            output['cases'] = output['cases'][:5]
+        elif scenario == 'missing-endpoint':
+            output['cases'] = output['cases'][:4]
+        elif scenario == 'category':
+            output['cases'][0]['category'] = canary
+        elif scenario == 'unknown':
+            output['cases'][0]['endpoint_id'] = foreign
+        elif scenario == 'duplicate':
+            output['cases'].append(copy.deepcopy(output['cases'][0]))
+        output['cases'][0]['description'] = canary
+        return output
+    planner.change_output = change
+    response = generate(planner)
+    assert response.status_code == 502
+    detail = response.json()['detail']
+    assert detail['code'] == code and detail['diagnostics']['error_code'] == code
+    assert detail['diagnostics']['persisted_case_count'] == 0
+    assert detail['diagnostics']['model_request_count'] == 1
+    assert detail['diagnostics']['completed_model_requests'] == 1
+    assert detail['diagnostics']['known_usage'] is None and detail['diagnostics']['usage_status'] == 'unknown'
+    assert len(planner.model_calls) == 1 and counts(planner) == (1, 0, 0)
+    assert canary not in response.text and foreign not in response.text
+    safe_logs = '\n'.join(SafeFormatter().format(record) for record in caplog.records)
+    assert canary not in safe_logs and foreign not in safe_logs
+    batch = detail['diagnostics']['batches'][0]
+    if scenario == '13+4':
+        assert batch['candidate_case_count'] == 17
+        assert [e['case_count'] for e in batch['endpoints']] == [13, 4]
+        assert all(not e['missing_categories'] for e in batch['endpoints'])
+    if scenario.startswith('missing'):
+        assert batch['endpoints'][1]['missing_categories']
+    if scenario in {'category', 'unknown', '25', 'json'}:
+        assert batch['candidate_case_count'] is None and not batch['endpoints']
+
+
+@pytest.mark.parametrize('failure', ['limit', 'coverage'])
+def test_second_of_three_batches_fails_atomically_without_retry(planner, failure):
+    spec_id = six_endpoints(planner)
+    def change(output):
+        if len(planner.model_calls) == 2:
+            if failure == 'coverage':
+                return {'cases': output['cases'][:-1]}
+            return counted_output({'endpoints': [{'endpoint_id': output['cases'][0]['endpoint_id']},
+                {'endpoint_id': output['cases'][4]['endpoint_id']}]}, (13, 4))
+        return output
+    planner.change_output = change
+    response = generate(planner, api_spec_id=spec_id)
+    assert response.status_code == 502
+    diagnostics = response.json()['detail']['diagnostics']
+    assert diagnostics['max_model_requests'] == 3
+    assert diagnostics['model_request_count'] == diagnostics['completed_model_requests'] == 2
+    assert diagnostics['batches'][0]['candidate_case_count'] == 8
+    assert diagnostics['batches'][2]['model_request_count'] == 0
+    assert diagnostics['persisted_case_count'] == 0 and counts(planner) == (1, 0, 0)
+    assert len(planner.model_calls) == 2 and not planner.calls
+    plan_id = response.json()['detail']['plan_id']
+    assert planner.get('/api/test-plans/' + plan_id).json()['status'] == 'failed'
+
+
+def test_six_endpoints_exactly_three_calls_and_explicit_batch_budgets(planner, caplog):
+    spec_id = six_endpoints(planner)
+    with caplog.at_level('INFO', logger='autoqa.test_plan_api'):
+        response = generate(planner, api_spec_id=spec_id)
+    assert response.status_code == 201
+    assert response.json()['status'] == 'ready' and response.json()['case_count'] == 24
+    assert len(planner.model_calls) == 3 and counts(planner) == (1, 24, 0)
+    for call in planner.model_calls:
+        prompt = call['messages'][0]['content']
+        assert '目标总数为8条' in prompt and '优先每接口正好4条' in prompt
+        assert '所有类别合计不超过12条' in prompt and '不是每类别最多12条' in prompt
+        assert 'name 必须唯一' in prompt and '待人工确认' in prompt
+    record = next(r for r in caplog.records if getattr(r, 'event', None) == 'planner_generation')
+    diagnostics = json.loads(SafeFormatter().format(record))['planner']
+    assert diagnostics['model_request_count'] == 3 and diagnostics['persisted_case_count'] == 24
+
+
+def test_single_endpoint_target_four(planner):
+    from sqlalchemy import delete
+    with Session(planner.application.state.store.engine) as session:
+        endpoint = session.scalar(select(ApiEndpointRow).order_by(ApiEndpointRow.path))
+        session.execute(delete(ApiEndpointRow).where(ApiEndpointRow.id != endpoint.id))
+        session.commit()
+    assert generate(planner).json()['case_count'] == 4
+    assert '目标总数为4条' in planner.model_calls[0]['messages'][0]['content']
+    assert len(planner.model_calls) == 1
+
+
+@pytest.mark.parametrize('succeeds', [True, False])
+def test_manual_regeneration_creates_new_plan_and_never_reuses_candidates(planner, succeeds):
+    planner.change_output = lambda output: {'cases': output['cases'][:-1]}
+    first = generate(planner).json()['detail']['plan_id']
+    planner.change_output = (lambda output: output) if succeeds else planner.change_output
+    second_response = generate(planner)
+    second = second_response.json()['id'] if succeeds else second_response.json()['detail']['plan_id']
+    assert first != second and len(planner.model_calls) == 2
+    assert planner.get('/api/test-plans/' + first).json()['status'] == 'failed'
+    assert planner.get('/api/test-plans/' + first + '/cases').json() == []
+    assert counts(planner) == (2, 8 if succeeds else 0, 0)
+
+
+async def test_late_context_limit_preflight_makes_zero_gateway_calls(monkeypatch):
+    class FakeGateway:
+        calls = 0
+        async def generate(self, *args, **kwargs):
+            self.calls += 1
+            raise AssertionError('Must not call any model')
+    endpoints = [{'endpoint_id': f'e{i}', 'summary': 'x' * (1000 if i == 5 else 1)} for i in range(6)]
+    diagnostics = PlannerDiagnostics(batch_count=3, max_model_requests=3)
+    monkeypatch.setattr('autoqa.test_planner.MAX_CONTEXT_BYTES', 500)
+    gateway = FakeGateway()
+    with pytest.raises(PlanningError) as error:
+        await TestPlannerAgent(gateway).generate('w', 's', endpoints, {}, [], {}, diagnostics=diagnostics)
+    assert error.value.code == 'context_too_large' and gateway.calls == 0
+    assert len(diagnostics.batches) == 3 and diagnostics.public()['model_request_count'] == 0

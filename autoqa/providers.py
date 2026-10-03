@@ -8,7 +8,9 @@ from .config import Settings
 
 
 class ProviderError(ValueError):
-    pass
+    def __init__(self, message, *, code=None):
+        super().__init__(message)
+        self.code = code
 
 
 class LLMProvider(Protocol):
@@ -20,6 +22,8 @@ class OpenAIProvider:
         self.key, self.model = settings.provider_key, settings.model_name
         self.base = settings.llm_base_url.rstrip("/")
         self.usage = None
+        self.model_request_count = 0
+        self.completed_model_requests = 0
         self.transport = transport
 
     async def generate(self, system: str, context: dict, schema: dict) -> dict:
@@ -42,6 +46,7 @@ class OpenAIProvider:
                     if not self.model:
                         raise ProviderError("No supported automatic model selection; set an explicit LLM_MODEL from your provider")
                     payload["model"] = self.model
+                self.model_request_count += 1
                 if self.transport:
                     from .target_network import fetch_limited
                     response = await fetch_limited(client, "POST", self.base + "/chat/completions",
@@ -49,8 +54,10 @@ class OpenAIProvider:
                 else:
                     response = await client.post(self.base + "/chat/completions",
                                                  headers={"Authorization": "Bearer " + self.key}, json=payload)
+                self.completed_model_requests += 1
                 if response.is_error:
-                    raise ProviderError(f"LLM provider returned HTTP {response.status_code}; check credentials/quota")
+                    raise ProviderError(f"LLM provider returned HTTP {response.status_code}; check credentials/quota",
+                                        code="provider_failure")
                 data = response.json()
                 self.usage = data.get("usage")
             content = data["choices"][0]["message"]["content"].strip()
@@ -62,10 +69,13 @@ class OpenAIProvider:
             return value
         except ProviderError:
             raise
+        except httpx.TimeoutException:
+            raise ProviderError("LLM provider timed out; verify endpoint/connectivity", code="provider_timeout") from None
         except httpx.HTTPError:
-            raise ProviderError("LLM provider connection failed or timed out; verify endpoint/connectivity") from None
+            raise ProviderError("LLM provider connection failed or timed out; verify endpoint/connectivity",
+                                code="provider_failure") from None
         except (ValueError, KeyError, IndexError, TypeError, AttributeError):
-            raise ProviderError("LLM provider returned invalid JSON; no test plan was executed") from None
+            raise ProviderError("LLM provider returned invalid JSON; no test plan was executed", code="json_parse") from None
 
 
 class DeepSeekProvider(OpenAIProvider):

@@ -1,6 +1,7 @@
 """Workspace-isolated TestPlan API, independent of task execution and reporting."""
 import asyncio
 import json
+import logging
 from datetime import timezone
 
 import yaml
@@ -9,19 +10,31 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from .api_import import project_session, scope
+from .planner_diagnostics import PlannerDiagnostics
 from .product_models import ApiEndpointRow, ApiSpecRow, TestCase, TestPlan
 from .providers import ProviderError
 from .store_base import now
 from .studio_models import ProjectRow
 from .test_planner import (
+    BATCH_SIZE,
     CATEGORIES,
     MAX_PLANNER_ENDPOINTS,
-    PLANNER_ERROR,
     GeneratePlanInput,
+    PlanningError,
     TestPlannerAgent,
+    error_message,
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+def log_generation(diagnostics):
+    # An unavailable diagnostic sink must never change a committed plan's outcome.
+    try:
+        logger.info("Planner generation", extra={"event": "planner_generation", "planner_diagnostics": diagnostics})
+    except Exception:
+        pass
 
 
 def utc_time(value):
@@ -88,9 +101,23 @@ async def generate_plan(project_id: str, request: Request, data: GeneratePlanInp
         session.add(plan)
         session.commit()
         plan_id = plan.id
+    batch_count = (len(endpoints) + BATCH_SIZE - 1) // BATCH_SIZE
+    diagnostics = PlannerDiagnostics(plan_id=plan_id, batch_count=batch_count, max_model_requests=batch_count)
     try:
         cases = await TestPlannerAgent(gateway).generate(request.state.workspace_id, request.state.session_hash,
-            endpoints, definitions, document.get("security", []), config)
+            endpoints, definitions, document.get("security", []), config, diagnostics=diagnostics)
+    except asyncio.CancelledError:
+        fail_plan(request.app.state.store.engine, plan_id)
+        diagnostics.error_code = "cancelled"
+        log_generation(diagnostics)
+        raise
+    except Exception as error:
+        fail_plan(request.app.state.store.engine, plan_id)
+        diagnostics.error_code = error.code if isinstance(error, PlanningError) else "planner_failure"
+        log_generation(diagnostics)
+        raise HTTPException(502, {"message": error_message(diagnostics.error_code), "plan_id": plan_id,
+                                 "code": diagnostics.error_code, "diagnostics": diagnostics.public()}) from None
+    try:
         # All batches must pass validation before any cases are saved; one atomic transaction.
         with project_session(request, project_id) as session:
             plan = owned_plan(session, request, plan_id)
@@ -102,13 +129,18 @@ async def generate_plan(project_id: str, request: Request, data: GeneratePlanInp
             session.flush()
             result = plan_info(session, plan)
             session.commit()
+            diagnostics.persisted_case_count = len(cases)
+            log_generation(diagnostics)
             return result
     except asyncio.CancelledError:
         fail_plan(request.app.state.store.engine, plan_id)
         raise
     except Exception:
         fail_plan(request.app.state.store.engine, plan_id)
-        raise HTTPException(502, {"message": PLANNER_ERROR, "plan_id": plan_id}) from None
+        diagnostics.error_code = "persistence_failure"
+        log_generation(diagnostics)
+        raise HTTPException(502, {"message": error_message(diagnostics.error_code), "plan_id": plan_id,
+                                 "code": diagnostics.error_code, "diagnostics": diagnostics.public()}) from None
 
 
 @router.get("/api/projects/{project_id}/test-plans")
