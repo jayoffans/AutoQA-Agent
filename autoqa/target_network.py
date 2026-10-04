@@ -2,6 +2,7 @@
 import asyncio
 import ipaddress
 import socket
+from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 import httpx
@@ -70,13 +71,53 @@ class PinnedTransport(httpx.AsyncBaseTransport):
         await self.inner.aclose()
 
 
-async def fetch_limited(client, method, url, *, max_bytes=2_000_000, **kwargs):
+@dataclass
+class ResponseObservation:
+    """Payload-free progress. Never retain a request, response, header map or exception."""
+    phase: str = "request_validation"
+    exception_category: str | None = None
+    response_headers_observed: bool = False
+    observed_http_status: int | None = None
+    encoding: str | None = None
+    decoded_bytes: int = 0
+
+
+def safe_diagnostics(value):
+    if not isinstance(value, dict):
+        return None
+    phases = {"request_validation", "dns", "request", "response_read", "response_rebuild", "assertion", "completed"}
+    categories = {"timeout", "dns", "policy", "connection", "tls", "decoding", "protocol", "read", "write",
+                  "response_size", "response_complexity", "transport", "internal"}
+    status, size = value.get("observed_http_status"), value.get("decoded_bytes")
+    phase, category, encoding = value.get("phase"), value.get("exception_category"), value.get("encoding")
+    return {"phase": phase if isinstance(phase, str) and phase in phases else None,
+            "exception_category": category if isinstance(category, str) and category in categories else None,
+            "response_headers_observed": value.get("response_headers_observed") is True,
+            "observed_http_status": status if type(status) is int and 100 <= status <= 599 else None,
+            "encoding": encoding if isinstance(encoding, str) and encoding in {"identity", "gzip", "deflate", "br", "zstd", "other"} else None,
+            "decoded_bytes": min(max(size, 0), 2_000_001) if type(size) is int else None}
+
+
+async def fetch_limited(client, method, url, *, max_bytes=2_000_000, observation=None, **kwargs):
     async with client.stream(method, url, **kwargs) as response:
+        if observation is not None:
+            observation.phase = "response_read"
+            observation.response_headers_observed = True
+            observation.observed_http_status = response.status_code
+            encoding = response.headers.get("content-encoding", "identity").strip().lower()
+            observation.encoding = encoding if encoding in {"identity", "gzip", "deflate", "br", "zstd"} else "other"
         chunks, size = [], 0
         async for chunk in response.aiter_bytes():
             size += len(chunk)
+            if observation is not None:
+                observation.decoded_bytes = min(size, max_bytes + 1)
             if size > max_bytes:
                 raise ResponseTooLargeError("Remote response exceeds the size limit")
             chunks.append(chunk)
-        return httpx.Response(response.status_code, headers=response.headers,
+        if observation is not None:
+            observation.phase = "response_rebuild"
+        # aiter_bytes already decoded the representation; its wire headers are now stale.
+        headers = [(key, value) for key, value in response.headers.multi_items()
+                   if key.lower() not in {"content-encoding", "content-length", "transfer-encoding"}]
+        return httpx.Response(response.status_code, headers=headers,
                               content=b"".join(chunks), request=response.request)

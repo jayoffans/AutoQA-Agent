@@ -26,6 +26,11 @@ class AnalyzeInput(BaseModel):
     refresh: bool = False
 
 
+class ConfirmAnalysisInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    intent_id: str = Field(min_length=36, max_length=36)
+
+
 class ExecutionAnalysis(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     execution_id: str = Field(min_length=1, max_length=36)
@@ -115,7 +120,7 @@ class ResultAnalyzerAgent:
     def __init__(self, gateway):
         self.gateway = gateway
 
-    async def analyze(self, workspace, session_hash, items, config):
+    async def analyze(self, workspace, session_hash, items, config, *, on_metadata=None):
         context = {"executions": items}
         try:
             if not 1 <= len(items) <= 3 or byte_size(context) > MAX_CONTEXT_BYTES:
@@ -128,6 +133,7 @@ class ResultAnalyzerAgent:
                     context,
                     AnalyzerOutput.model_json_schema(),
                     override=config,
+                    on_metadata=on_metadata,
                 )
             parsed = AnalyzerOutput.model_validate(raw)
             ids = [item.execution_id for item in parsed.analyses]

@@ -3,6 +3,7 @@ import gzip
 import json
 import ssl
 import threading
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from urllib.parse import urlsplit
@@ -16,7 +17,7 @@ import autoqa.target_network as network
 
 @pytest.fixture
 def socket_api():
-    state=SimpleNamespace(calls=[],mode='normal',release=threading.Event())
+    state=SimpleNamespace(calls=[],mode='normal',status=200,release=threading.Event())
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args):
             pass
@@ -30,7 +31,7 @@ def socket_api():
                                 'body':json.loads(body) if body else None})
             if state.mode=='timeout':
                 state.release.wait(3)
-            status=500 if state.mode=='500' else 302 if state.mode=='redirect' else 200
+            status=500 if state.mode=='500' else 302 if state.mode=='redirect' else state.status
             payload=json.dumps({'data':{'success':True,'token':'socket-response-secret','id':1},
                                 'echo':'socket-response-secret','request_echo':body.decode()}).encode()
             if state.mode in {'large','gzip','boundary'}:
@@ -39,9 +40,12 @@ def socket_api():
             self.send_header('Content-Type','application/json')
             if state.mode=='redirect':
                 self.send_header('Location','http://169.254.169.254/latest')
-            if state.mode=='gzip':
+            if state.mode in {'gzip','gzip-normal'}:
                 self.send_header('Content-Encoding','gzip')
                 payload=gzip.compress(payload)
+            elif state.mode=='deflate-normal':
+                self.send_header('Content-Encoding','deflate')
+                payload=zlib.compress(payload)
             self.send_header('Content-Length',str(len(payload)))
             self.end_headers()
             try:

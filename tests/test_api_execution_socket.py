@@ -49,6 +49,19 @@ def test_socket_review_execute_assertions_and_rerun(execution,socket_api,monkeyp
     assert len(socket_api.calls)==16 and len(execution.model_calls)==model_calls
 
 
+@pytest.mark.parametrize('mode',['normal','gzip-normal','deflate-normal'])
+@pytest.mark.parametrize('status',[200,422])
+def test_real_socket_decoded_responses(execution,socket_api,monkeypatch,mode,status):
+    prepare(execution,socket_api,monkeypatch,status)
+    socket_api.mode,socket_api.status=mode,status
+    run=execute(execution).json()
+    detail=execution.get('/api/test-runs/'+run['id']).json()
+    assert run['summary']['passed_cases']==8 and run['summary']['execution_error_cases']==0
+    assert len(socket_api.calls)==8
+    assert all(e['response_status']==status and e['result_data']['diagnostics']['response_headers_observed']
+               for e in detail['executions'])
+
+
 @pytest.mark.parametrize('expected,outcome',[ (200,'failed'),(500,'passed')])
 def test_socket_http_500_is_completed_http(execution,socket_api,monkeypatch,expected,outcome):
     prepare(execution,socket_api,monkeypatch,expected)

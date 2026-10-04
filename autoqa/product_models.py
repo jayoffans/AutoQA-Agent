@@ -218,6 +218,7 @@ class TestRun(Base):
                              ["ai_test_plans.id", "ai_test_plans.project_id", "ai_test_plans.workspace_id"],
                              name="fk_api_run_plan_scope"),
         UniqueConstraint("id", "plan_id", "workspace_id", name="uq_api_run_scope"),
+        UniqueConstraint("id", "workspace_id", name="uq_api_run_workspace"),
         CheckConstraint("status IN ('running','passed','failed','execution_error','interrupted')", name="ck_api_run_status"),
         CheckConstraint("total_cases >= 0 AND passed_cases >= 0 AND failed_cases >= 0 "
                         "AND passed_cases + failed_cases <= total_cases", name="ck_api_run_counts"),
@@ -267,3 +268,43 @@ class TestExecution(Base):
     duration_ms: Mapped[int] = mapped_column(Integer)
     status: Mapped[str | None] = mapped_column(String(16), nullable=True)
     result_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class AnalysisAudit(Base):
+    """One server-issued intent and its single, explicitly confirmed invocation."""
+    __tablename__ = "api_analysis_audits"
+    __table_args__ = (
+        ForeignKeyConstraint(["run_id", "workspace_id"], ["api_test_runs.id", "api_test_runs.workspace_id"],
+                             name="fk_analysis_audit_run_scope"),
+        CheckConstraint("status IN ('prepared','invoking','cached','succeeded','failed','unknown')",
+                        name="ck_analysis_audit_status"),
+        CheckConstraint("request_count IS NULL OR request_count IN (0,1)", name="ck_analysis_audit_count"),
+        CheckConstraint("active_run_id IS NULL OR (active_run_id = run_id AND status = 'invoking')",
+                        name="ck_analysis_audit_active"),
+        CheckConstraint("status != 'cached' OR (request_count IS NOT NULL AND request_count = 0)",
+                        name="ck_analysis_audit_cached"),
+        CheckConstraint("status != 'unknown' OR request_count IS NULL", name="ck_analysis_audit_unknown"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    run_id: Mapped[str] = mapped_column(String(36), index=True)
+    report_id: Mapped[str] = mapped_column(ForeignKey("reports.id"))
+    selected_execution_ids: Mapped[list] = mapped_column(JSON)
+    analyzed_execution_ids: Mapped[list] = mapped_column(JSON)
+    refresh: Mapped[bool] = mapped_column(Boolean)
+    provider: Mapped[str] = mapped_column(String(24))
+    model: Mapped[str] = mapped_column(String(160))
+    resolved_model: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    provider_config_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    provider_config_version: Mapped[str] = mapped_column(String(64))
+    action_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    dispatch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notice_version: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(16), default="prepared")
+    request_count: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    active_run_id: Mapped[str | None] = mapped_column(String(36), unique=True, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(32), nullable=True)

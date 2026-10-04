@@ -4,6 +4,7 @@ import json
 import re
 import ssl
 import time
+from dataclasses import asdict
 from typing import Any
 from urllib.parse import quote, unquote, urlsplit
 
@@ -18,10 +19,12 @@ from .safe_logging import private_http_logs
 from .security import origin, safe_url
 from .target_network import (
     PinnedTransport,
+    ResponseObservation,
     ResponseTooLargeError,
     TargetResolutionError,
     fetch_limited,
     resolve_target,
+    safe_diagnostics,
 )
 
 CASE_TIMEOUT = 10
@@ -200,13 +203,15 @@ class ApiExecutor:
             status="execution_error")
         evidence = assertion_results(config.expected_status, config.assertions)
         error_code = None
+        observation = ResponseObservation()
         try:
             url = validate_config(endpoint, config, base_url)
             result.url = scrub(safe_url(url), hidden)
             # Revalidate every request, then pin again at connection time. Never honor the private-target setting.
             with private_http_logs():
-                response = await self._request(endpoint, base_url, config, url)
+                response = await self._request(endpoint, base_url, config, url, observation)
             result.response_status = response.status_code
+            observation.phase = "assertion"
             evidence = assertion_results(config.expected_status, config.assertions, response.status_code, response.content)
             try:
                 raw = parse_json(response.content)
@@ -216,32 +221,44 @@ class ApiExecutor:
                 result.response_body = safe_text(response.text, hidden)
             result.passed = all(entry["status"] == "passed" for entry in evidence)
             result.status = "passed" if result.passed else "failed"
+            observation.phase = "completed"
             if not result.passed:
                 result.error_message = ("禁止跟随重定向" if 300 <= response.status_code < 400 else
                     f"预期 HTTP {config.expected_status}，收到 HTTP {response.status_code}" if response.status_code != config.expected_status
                     else "JSON 断言未通过")
         except (TimeoutError, httpx.TimeoutException):
+            observation.exception_category = "timeout"
             error_code = "timeout"
             result.error_message = "HTTP 请求超时"
         except TargetResolutionError:
+            observation.exception_category = "dns"
             error_code = "dns_error"
             result.error_message = "目标 DNS 解析失败"
         except ResponseTooLargeError:
+            observation.exception_category = "response_size"
             error_code = "response_too_large"
             result.error_message = "响应超出大小限制"
         except ResponseComplexityError:
+            observation.exception_category = "response_complexity"
             error_code = "response_too_complex"
             result.error_message = "响应 JSON 结构超出复杂度限制"
         except httpx.ConnectError as error:
             error_code = "tls_error" if tls_error(error) else "connection_error"
+            observation.exception_category = "tls" if error_code == "tls_error" else "connection"
             result.error_message = "TLS 校验失败" if error_code == "tls_error" else "HTTP 连接失败"
-        except httpx.HTTPError:
+        except httpx.HTTPError as error:
+            observation.exception_category = ("decoding" if isinstance(error, httpx.DecodingError) else
+                "protocol" if isinstance(error, httpx.ProtocolError) else
+                "read" if isinstance(error, httpx.ReadError) else
+                "write" if isinstance(error, httpx.WriteError) else "transport")
             error_code = "transport_error"
             result.error_message = "HTTP 请求失败"
         except (ValueError, KeyError, TypeError):
+            observation.exception_category = "policy"
             error_code = "policy_rejected"
             result.error_message = "请求被安全策略拒绝"
         except Exception:
+            observation.exception_category = "internal"
             error_code = "internal_error"
             result.error_message = "执行器内部错误"
         if error_code:
@@ -251,7 +268,8 @@ class ApiExecutor:
         result.url = scrub(result.url, hidden)
         result.result_data = {"version": 1, "case_name": scrub(getattr(case, "name", case.id), hidden),
                               "expected_status": config.expected_status, "error_code": error_code,
-                              "assertion_results": redact_assertions(evidence, hidden)}
+                              "assertion_results": redact_assertions(evidence, hidden),
+                              "diagnostics": safe_diagnostics(asdict(observation))}
         if result.response_body is not None:
             encoded = result.response_body.encode()
             if len(encoded) > MAX_RESPONSE_BYTES:
@@ -260,12 +278,14 @@ class ApiExecutor:
         result.duration_ms = max(0, int((time.monotonic() - started) * 1000))
         return result
 
-    async def _request(self, endpoint, base_url, config, url):
+    async def _request(self, endpoint, base_url, config, url, observation):
         async with asyncio.timeout(CASE_TIMEOUT):
+            observation.phase = "dns"
             await asyncio.to_thread(validate_base_url, base_url)
             await asyncio.to_thread(resolve_target, url, False)
+            observation.phase = "request"
             async with httpx.AsyncClient(transport=self.transport_factory(), timeout=CASE_TIMEOUT,
                     follow_redirects=False, trust_env=False) as client:
-                return await fetch_limited(client, endpoint.method, url, max_bytes=MAX_RESPONSE_BYTES,
+                return await fetch_limited(client, endpoint.method, url, max_bytes=MAX_RESPONSE_BYTES, observation=observation,
                     params=config.request_data.query, headers=config.request_data.headers,
                     **({"json": config.request_data.json_body} if config.request_data.json_body is not None else {}))

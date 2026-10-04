@@ -155,9 +155,9 @@
   "executionApprove": "审核通过",
   "executionStart": "执行 API 测试",
   "executionMissingTarget": "请编辑项目并填写公网 Base URL",
-  "executionHint": "请逐条确认请求、预期状态码和 JSON 断言。默认参数仅是样例；不执行文字步骤。审核后请求、断言和目标固定。",
-  "executionScenarioReview": "此场景需要人工调整请求和预期状态码。",
-  "executionDefaults": "参数依据 OpenAPI 生成，请确认适合目标测试环境。",
+  "executionHint": "AI 生成候选测试意图。每条 Case 仅发送一个 HTTP 请求；文字步骤不会执行。请确认下方请求、预期状态码和 JSON 断言。批准后执行这些冻结配置。",
+  "executionScenarioReview": "OpenAPI执行样例，尚未确认符合当前场景及全部约束。请人工确认当前场景的请求、预期状态码和断言。",
+  "executionDefaults": "OpenAPI执行样例，尚未确认符合当前场景及全部约束。",
   "executionRequest": "请求参数 (JSON)",
   "executionExpectedStatus": "预期 HTTP 状态码",
   "executionRuns": "测试运行",
@@ -208,5 +208,12 @@
   "qualitySuggestions": "AI 建议",
   "qualityConfidence": "假设置信度",
   "qualitySuggestedSeverity": "AI 建议严重程度",
-  "qualityExecuted": "已执行用例"
+  "qualityExecuted": "已执行用例",
+  "candidateIntent": "AI候选测试意图 / Candidate Test Intent",
+  "candidateReference": "候选文字仅供参考，不代表已执行全部步骤或覆盖范围。实际执行以人工批准的配置及 Evidence 为准。",
+  "candidateName": "AI候选名称",
+  "executionDiagnostics": "安全执行诊断",
+  "executionFrozen": "人工批准的冻结配置。",
+  "executionUnknown": "未保存 / Unknown",
+  "qualityIntentExpiry": "本次确认有效期"
 }

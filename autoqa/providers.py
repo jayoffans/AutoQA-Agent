@@ -20,6 +20,7 @@ class LLMProvider(Protocol):
 class OpenAIProvider:
     def __init__(self, settings: Settings, transport=None):
         self.key, self.model = settings.provider_key, settings.model_name
+        self.resolved_model = None
         self.base = settings.llm_base_url.rstrip("/")
         self.usage = None
         self.model_request_count = 0
@@ -59,6 +60,7 @@ class OpenAIProvider:
                     raise ProviderError(f"LLM provider returned HTTP {response.status_code}; check credentials/quota",
                                         code="provider_failure")
                 data = response.json()
+                self.resolved_model = data.get("model")
                 self.usage = data.get("usage")
             content = data["choices"][0]["message"]["content"].strip()
             if content.startswith("```"):

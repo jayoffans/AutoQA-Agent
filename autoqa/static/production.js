@@ -17,7 +17,7 @@ const apiRunSelections = new Map();
 let apiRunRenderVersion = 0;
 let reportRunId = '', reportData = null, reportRenderVersion = 0;
 const reportSelection = new Set(), reportEvidence = new Map();
-let reportAnalyzing = false;
+let reportAnalyzing = false, reportIntent = null, reportIntentVersion = 0;
 const views = ['dashboard','projects','tasks','workflow','findings','reports','model'];
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => $('toast').hidden = true, 5000); }
 async function api(path, method = 'GET', body) {
@@ -52,7 +52,7 @@ function resetIdentity() {
   onboarding=null; providerConfigs=[];
   apiModeProject=''; apiNotice=null;
   plannerDetailId=''; plannerSpecId=''; apiRunSelections.clear(); apiRunRenderVersion++;
-  reportRunId=''; reportData=null; reportSelection.clear(); reportEvidence.clear(); reportRenderVersion++; reportAnalyzing=false;
+  invalidateAnalysisIntent(); reportRunId=''; reportData=null; reportSelection.clear(); reportEvidence.clear(); reportRenderVersion++; reportAnalyzing=false;
   selectedTask=''; selectedProject=''; detail=null; currentView='dashboard'; authMode='login';
   clearPasswords(); $('dialog').close(); $('dialog').innerHTML='';
 }
@@ -86,7 +86,7 @@ function routeView() {
   const planPage = requested.match(/^projects\/([A-Za-z0-9-]+)\/test-plans\/([A-Za-z0-9-]+)$/);
   const apiPage = requested.match(/^projects\/([A-Za-z0-9-]+)\/api-testing$/) || planPage;
   const reportPage = requested.match(/^test-runs\/([A-Za-z0-9-]+)\/report$/);
-  if (reportRunId !== (reportPage?.[1] || '')) reportAnalyzing=false;
+  if (reportRunId !== (reportPage?.[1] || '')) { reportAnalyzing=false; invalidateAnalysisIntent(); }
   reportRunId = reportPage?.[1] || '';
   plannerDetailId = planPage?.[2] || '';
   apiModeProject = apiPage?.[1] || '';
@@ -278,7 +278,7 @@ async function plannerDetail(planId,projectId) {
   $('project-detail').innerHTML=`<section class="panel product-panel"><div class="progress-heading"><h2>${text('plannerDetail')}</h2>${button('plannerBack','api-testing',projectId)}</div><p><span class="badge ${esc(plan.status)}">${text('plannerStatus_'+plan.status)}</span> · ${esc(plan.provider)} · ${esc(plan.model)}</p><p>${text('plannerCaseCount')}: ${plan.case_count} · ${date(plan.created_at)}</p>${plannerCounts(plan.category_counts)}<p>${text(plan.status==='failed'?'plannerFailed':'plannerHint')}</p></section>
     <section class="panel product-panel execution-review"><h2>${text('executionReview')}</h2><p>${text('baseUrl')}: <span class="mono">${esc(preview.base_url || t('executionMissingTarget'))}</span></p><p>${text('executionHint')}</p><div class="button-row">${plan.status==='ready'?button('executionApprove','approve-api-plan',planId,'primary'):''}<button class="primary" type="button" data-action="execute-api-plan" data-approved="${plan.status==='approved'}" data-id="${esc(planId)}" ${plan.status!=='approved' || runs.some(r=>r.status==='running') || executingPlans.has(workspace+':'+planId)?'disabled':''}>${text('executionStart')}</button>${button('edit','edit-project',projectId)}</div></section>
     <section id="api-run-results" class="panel product-panel" aria-live="polite"></section>
-    <div class="planner-cases">${cases.map(c=>{const e=endpoints.find(e=>e.id===c.endpoint_id),p=preview.cases.find(p=>p.case_id===c.id);return `<article class="panel product-panel planner-case"><div class="progress-heading"><h2>${esc(c.name)}</h2><span class="badge">${esc(c.priority)}</span></div><p class="mono">${esc(e?.method)} ${esc(e?.path)}</p><span class="badge">${text('plannerCategory_'+c.category)}</span><p>${esc(c.description)}</p><h3>${text('plannerSteps')}</h3><ol>${c.steps.map(step=>`<li>${esc(step)}</li>`).join('')}</ol><h3>${text('plannerExpected')}</h3><p>${esc(c.expected_result)}</p>${p?`<p>${text(p.requires_review?'executionScenarioReview':'executionDefaults')}</p>${p.error?`<p role="alert">${esc(p.error)}</p>`:''}<label>${text('executionRequest')}<textarea class="json-editor execution-request" data-case-id="${esc(c.id)}" rows="8" ${plan.status==='ready'?'':'readonly'}>${json(p.config.request_data)}</textarea></label><label>${text('executionExpectedStatus')}<input class="execution-status" data-case-id="${esc(c.id)}" type="number" min="100" max="599" required value="${esc(p.config.expected_status)}" ${plan.status==='ready'?'':'readonly'}></label><label>${text('executionAssertions')}<textarea class="json-editor execution-assertions" data-case-id="${esc(c.id)}" rows="5" ${plan.status==='ready'?'':'readonly'}>${json(p.config.assertions || [])}</textarea></label>`:''}</article>`;}).join('')}</div>`;
+    <div class="planner-cases">${cases.map(c=>{const e=endpoints.find(e=>e.id===c.endpoint_id),p=preview.cases.find(p=>p.case_id===c.id);return `<article class="panel product-panel planner-case"><div class="progress-heading"><h2>${esc(e?.method)} ${esc(e?.path)}</h2><span class="badge">${esc(c.priority)}</span></div><p class="mono">${esc(e?.method)} ${esc(e?.path)}</p><span class="badge">${text('plannerCategory_'+c.category)}</span>${p?`<p>${text(plan.status==='approved'?'executionFrozen':p.requires_review?'executionScenarioReview':'executionDefaults')}</p>${p.error?`<p role="alert">${esc(p.error)}</p>`:''}<label>${text('executionRequest')}<textarea class="json-editor execution-request" data-case-id="${esc(c.id)}" rows="8" ${plan.status==='ready'?'':'readonly'}>${json(p.config.request_data)}</textarea></label><label>${text('executionExpectedStatus')}<input class="execution-status" data-case-id="${esc(c.id)}" type="number" min="100" max="599" required value="${esc(p.config.expected_status)}" ${plan.status==='ready'?'':'readonly'}></label><label>${text('executionAssertions')}<textarea class="json-editor execution-assertions" data-case-id="${esc(c.id)}" rows="5" ${plan.status==='ready'?'':'readonly'}>${json(p.config.assertions || [])}</textarea></label>`:''}<details class="candidate-intent"><summary>${text('candidateIntent')}</summary><h3>${esc(c.name)}</h3><p>${esc(c.description)}</p><h4>${text('plannerSteps')}</h4><ol>${c.steps.map(step=>`<li>${esc(step)}</li>`).join('')}</ol><h4>${text('plannerExpected')}</h4><p>${esc(c.expected_result)}</p><p>${text('candidateReference')}</p></details></article>`;}).join('')}</div>`;
   await renderApiRuns(planId,version,runs);
 }
 async function renderApiRuns(planId,version=identityVersion,runs) {
@@ -294,7 +294,7 @@ async function renderApiRuns(planId,version=identityVersion,runs) {
   element.innerHTML=`<h2>${text('executionRuns')}</h2>${runs.length?`<label>${text('executionSelectRun')}<select id="api-run-selector">${runs.map(r=>`<option value="${esc(r.id)}" ${r.id===selectedId?'selected':''}>${date(r.started_at)} · ${esc(r.id.slice(0,8))} · ${text(r.summary.status || r.status)}</option>`).join('')}</select></label>`:`<p>${text('executionNoRuns')}</p>`}
     ${runs.map(r=>`<p class="api-run-summary" data-run-id="${esc(r.id)}">${summary(r)} · ${date(r.started_at)}</p>`).join('')}
     ${selected?`<section class="api-selected-run" data-run-id="${esc(selected.id)}"><h3>${text('executionDetail')} · ${esc(selected.id)}</h3><p>${summary(selected)}</p><p>${text('executionStarted')}: ${date(selected.started_at)} · ${text('executionFinished')}: ${date(selected.finished_at)}</p>${selected.summary.classification_inferred?`<p>${text('executionLegacy')}</p>`:''}${selected.status==='interrupted'?`<p>${text('executionInterrupted')}</p>`:''}<p>${text('executionRerunHint')}</p><button type="button" data-action="rerun-api-run" data-id="${esc(selected.id)}" ${blocked || selected.status==='running'?'disabled':''}>${text('executionRerun')}</button>${selected.status!=='running'?button('qualityView','view-api-report',selected.id):''}
-    ${selected.executions.map(e=>`<details class="api-execution" data-execution-id="${esc(e.id)}" ${open.has(e.id)?'open':''}><summary>${esc(e.result_data?.case_name || e.case_id)} · ${esc(e.method)} ${esc(e.url)} · HTTP ${esc(e.response_status ?? '—')} · ${text(e.status)} · ${e.duration_ms} ms</summary>${e.classification_inferred?`<p>${text('executionLegacy')}</p>`:''}<p>${esc(e.result_data?.error_code || '')} ${esc(e.error_message)}</p><h4>${text('executionRequest')}</h4><pre>${json(e.request_data)}</pre><h4>${text('executionResponse')}</h4><pre>${esc(e.response_body)}</pre>${e.result_data?.response_body_truncated?`<p>${text('executionEvidenceTruncated')}</p>`:''}<h4>${text('executionAssertionResults')}</h4>${e.result_data?`<pre>${json(e.result_data.assertion_results)}</pre>`:`<p>${text('executionLegacyEvidence')}</p>`}</details>`).join('')}</section>`:''}`;
+    ${selected.executions.map(e=>`<details class="api-execution" data-execution-id="${esc(e.id)}" ${open.has(e.id)?'open':''}><summary>${text('candidateName')}: ${esc(e.result_data?.case_name || e.case_id)} · ${esc(e.method)} ${esc(e.url)} · HTTP ${esc(e.response_status ?? '—')} · ${text(e.status)} · ${e.duration_ms} ms</summary>${e.classification_inferred?`<p>${text('executionLegacy')}</p>`:''}<p>${esc(e.result_data?.error_code || '')} ${esc(e.error_message)}</p><h4>${text('executionRequest')}</h4><pre>${json(e.request_data)}</pre><h4>${text('executionResponse')}</h4><pre>${esc(e.response_body)}</pre>${e.result_data?.response_body_truncated?`<p>${text('executionEvidenceTruncated')}</p>`:''}<h4>${text('executionDiagnostics')}</h4><pre>${e.result_data?.diagnostics?json(e.result_data.diagnostics):text('executionUnknown')}</pre><h4>${text('executionAssertionResults')}</h4>${e.result_data?`<pre>${json(e.result_data.assertion_results)}</pre>`:`<p>${text('executionLegacyEvidence')}</p>`}</details>`).join('')}</section>`:''}`;
   const control=document.querySelector('[data-action="execute-api-plan"]');
   if(control) control.disabled=control.dataset.approved!=='true' || blocked || !!document.querySelector('[data-action="approve-api-plan"]');
 }
@@ -322,30 +322,42 @@ async function loadApiReport(runId) {
 function drawApiReport() {
   if(!reportData || !$('api-quality-report')) return;
   const d=reportData,s=d.summary,m=d.metadata;
-  const finding=f=>`<article class="panel product-panel quality-finding" data-finding-id="${esc(f.id)}"><div class="progress-heading"><h3>${esc(f.title)}</h3><span class="badge ${esc(f.severity)}">${text(f.severity)}</span></div><label class="quality-pick"><input class="quality-selection" type="checkbox" value="${esc(f.source_execution_id)}" ${reportSelection.has(f.source_execution_id)?'checked':''}>${text('qualitySelect')}</label><p>${text('severity')}: ${text(f.severity)} · ${esc(f.severity_reason)} · ${text('plannerCategory_'+f.category)}</p><p>${text('qualityRoot')}</p><h4>${text('expected')}</h4><pre>${esc(f.expected)}</pre><h4>${text('actual')}</h4><pre>${esc(f.actual)}</pre>${f.expected_truncated || f.actual_truncated?`<p>${text('executionEvidenceTruncated')}</p>`:''}<p>${esc(f.recommendation)}</p>${qualityEvidence(f.source_execution_id)}${qualityAnalysis(d.analysis[f.source_execution_id])}</article>`;
+  const finding=f=>`<article class="panel product-panel quality-finding" data-finding-id="${esc(f.id)}"><div class="progress-heading"><h3>${text('candidateName')}: ${esc(f.title)}</h3><span class="badge ${esc(f.severity)}">${text(f.severity)}</span></div><label class="quality-pick"><input class="quality-selection" type="checkbox" value="${esc(f.source_execution_id)}" ${reportSelection.has(f.source_execution_id)?'checked':''}>${text('qualitySelect')}</label><p>${text('severity')}: ${text(f.severity)} · ${esc(f.severity_reason)} · ${text('plannerCategory_'+f.category)}</p><p>${text('qualityRoot')}</p><h4>${text('expected')}</h4><pre>${esc(f.expected)}</pre><h4>${text('actual')}</h4><pre>${esc(f.actual)}</pre>${f.expected_truncated || f.actual_truncated?`<p>${text('executionEvidenceTruncated')}</p>`:''}<p>${esc(f.recommendation)}</p>${qualityEvidence(f.source_execution_id)}${qualityAnalysis(d.analysis[f.source_execution_id])}</article>`;
   $('api-quality-report').innerHTML=`<section class="panel product-panel"><div class="progress-heading"><h1>${text('qualityTitle')}</h1>${button('plannerBack','quality-back',m.plan_id)}</div><p>${esc(m.project_name)} · ${text('plan')}: ${esc(m.plan_id)}</p><p>Run: ${esc(m.run_id)} · Report: ${esc(d.id)}</p><p>${text('qualityCreated')}: ${date(m.created_at)} · ${text('executionStarted')}: ${date(m.started_at)} · ${text('executionFinished')}: ${date(m.finished_at)}</p>${s.incomplete?`<p class="product-notice">${text('qualityIncomplete')}</p>`:''}${s.classification_inferred?`<p>${text('executionLegacy')}</p>`:''}<div class="metrics quality-metrics">${metric('qualityTotal',s.total_cases)}${metric('passed',s.passed_cases)}${metric('failed',s.failed_cases)}${metric('execution_error',s.execution_error_cases)}${metric('executionPending',s.pending_cases)}${metric('qualityPassRate',s.pass_rate===null?'—':s.pass_rate.toFixed(2)+'%')}${metric('duration',s.duration_ms===null?'—':s.duration_ms+' ms')}</div><p>${text('qualityRateNote')}</p><div class="button-row">${button('qualityHtml','quality-export','html')}${button('qualityMarkdown','quality-export','md')}</div></section>
-    <section class="panel product-panel"><h2>${text('scope')}</h2><p>${text('qualityExecuted')}: ${d.scope.executed_cases}</p><ul class="quality-endpoints">${d.scope.tested_endpoints.map(e=>`<li><strong>${esc(e.method)}</strong> <span class="mono">${esc(e.path)}</span></li>`).join('')}</ul>${plannerCounts(d.scope.case_categories)}<h3>${text('qualityCases')}</h3>${d.cases.map(c=>`<details class="quality-case"><summary>${esc(c.case_name)} · ${esc(c.method)} ${esc(c.endpoint)} · ${text(c.status==='pending'?'executionPending':c.status)}</summary><pre>${json(c)}</pre>${c.execution_id?qualityEvidence(c.execution_id):''}</details>`).join('')}</section>
+    <section class="panel product-panel"><h2>${text('scope')}</h2><p>${text('qualityExecuted')}: ${d.scope.executed_cases}</p><ul class="quality-endpoints">${d.scope.tested_endpoints.map(e=>`<li><strong>${esc(e.method)}</strong> <span class="mono">${esc(e.path)}</span></li>`).join('')}</ul>${plannerCounts(d.scope.case_categories)}<h3>${text('qualityCases')}</h3>${d.cases.map(c=>`<details class="quality-case"><summary>${text('candidateName')}: ${esc(c.case_name)} · ${esc(c.method)} ${esc(c.endpoint)} · ${text(c.status==='pending'?'executionPending':c.status)}</summary><pre>${json(c)}</pre>${c.execution_id?qualityEvidence(c.execution_id):''}</details>`).join('')}</section>
     <section class="panel product-panel quality-ai-controls"><h2>${text('qualityAI')}</h2><p>${text('qualityRoot')}</p><p>${text('qualityCost')}</p><p>${text('qualityMax')} · ${text('qualityCache')}</p>${!model.configured?`<p>${text('qualityNoProvider')}</p>${button('goModel','model')}`:''}<div class="button-row"><button type="button" class="primary" data-action="quality-analyze" ${!model.configured || reportAnalyzing?'disabled':''}>${text('qualityAnalyze')}</button><button type="button" data-action="quality-reanalyze" ${!model.configured || reportAnalyzing?'disabled':''}>${text('qualityRefresh')}</button></div></section>
     <section class="quality-failures"><h2>${text('qualityFailures')}</h2>${d.findings.filter(f=>f.kind==='failed').map(finding).join('') || `<p>${text('qualityNone')}</p>`}</section><section class="quality-errors"><h2>${text('qualityErrors')}</h2>${d.findings.filter(f=>f.kind==='execution_error').map(finding).join('') || `<p>${text('qualityNone')}</p>`}</section>`;
 }
 function qualityEvidence(id) {
-  return `<details class="quality-evidence" data-quality-execution="${esc(id)}"><summary>${text('findingEvidence')}</summary><div class="quality-evidence-content">${reportEvidence.has(id)?`<pre>${json(reportEvidence.get(id))}</pre>`:`<p>${text('qualityEvidenceLoad')}</p>`}</div></details>`;
+  return `<details class="quality-evidence" data-quality-execution="${esc(id)}"><summary>${text('findingEvidence')}</summary><div class="quality-evidence-content">${reportEvidence.has(id)?qualityEvidenceContent(reportEvidence.get(id)):`<p>${text('qualityEvidenceLoad')}</p>`}</div></details>`;
+}
+function qualityEvidenceContent(evidence) {
+  return `<p>${text('executionDiagnostics')}: ${evidence.diagnostics?'':text('executionUnknown')}</p><pre>${json(evidence)}</pre>`;
 }
 function qualityAnalysis(a) {
   return a?`<aside class="quality-ai"><h4>${text('qualityAI')}</h4><p>${text('qualityRoot')}</p><p>${text('qualityAnalyzed')}: ${date(a.generated_at)} · ${esc(a.provider)} / ${esc(a.model)}</p><h5>${text('qualityAnalysis')}</h5><p>${esc(a.analysis_summary)}</p><h5>${text('qualityCauses')}</h5><pre>${json(a.possible_causes)}</pre><h5>${text('qualitySuggestions')}</h5><pre>${json(a.recommendations)}</pre><p>${text('qualityConfidence')}: ${esc(a.confidence)} · ${text('qualitySuggestedSeverity')}: ${esc(a.suggested_severity || '—')}</p></aside>`:'';
 }
-function showAnalysisDialog(refresh) {
+function invalidateAnalysisIntent() {
+  reportIntent=null; reportIntentVersion++;
+}
+$('dialog').addEventListener('close',invalidateAnalysisIntent);
+$('dialog').addEventListener('cancel',invalidateAnalysisIntent);
+async function showAnalysisDialog(refresh) {
   if(!reportSelection.size || reportSelection.size>3) throw Error(t('qualityMax'));
-  const count=[...reportSelection].filter(id=>refresh || !reportData.analysis[id]).length;
-  $('dialog').innerHTML=`<div class="dialog-body"><h2>${text(refresh?'qualityRefresh':'qualityAnalyze')}</h2><p>${text('qualityCost')}</p><p>${esc(t('qualitySelected',{selected:reportSelection.size,new:count}))}</p><p>${text('qualityRoot')}</p><div class="button-row">${button('cancel','close')}<button type="button" class="primary" data-action="quality-confirm-analysis" data-refresh="${refresh}">${text('qualityConfirm')}</button></div></div>`;
+  invalidateAnalysisIntent();
+  const runId=reportRunId,version=identityVersion,revision=reportIntentVersion;
+  const intent=await api(`/api/test-runs/${runId}/analysis-intents`,'POST',{execution_ids:[...reportSelection],refresh});
+  if(version!==identityVersion || revision!==reportIntentVersion || runId!==reportRunId) return;
+  reportIntent={...intent,runId,identityVersion:version};
+  $('dialog').innerHTML=`<div class="dialog-body" data-notice-version="${esc(intent.notice_version)}"><h2>${text(intent.refresh?'qualityRefresh':'qualityAnalyze')}</h2><p>${text('qualityCost')}</p><p>${esc(intent.provider)} / ${esc(intent.model)}</p><p>${esc(t('qualitySelected',{selected:intent.selected_execution_ids.length,new:intent.to_analyze_execution_ids.length}))}</p><ul>${intent.selected_execution_ids.map(id=>`<li>${esc(reportData.cases.find(c=>c.execution_id===id)?.case_name || id)}</li>`).join('')}</ul><p>${text('qualityIntentExpiry')}: ${date(intent.expires_at)}</p><p>${text('qualityRoot')}</p><div class="button-row">${button('cancel','close')}<button type="button" class="primary" data-action="quality-confirm-analysis">${text('qualityConfirm')}</button></div></div>`;
   $('dialog').showModal();
 }
-async function analyzeReport(refresh) {
-  const runId=reportRunId,version=identityVersion,ids=[...reportSelection];
-  if(reportAnalyzing) return;
-  reportAnalyzing=true; $('dialog').close(); drawApiReport();
+async function analyzeReport() {
+  const intent=reportIntent,runId=reportRunId,version=identityVersion;
+  if(reportAnalyzing || !intent || intent.runId!==runId || intent.identityVersion!==version) return;
+  reportAnalyzing=true; invalidateAnalysisIntent(); $('dialog').close(); drawApiReport();
   try {
-    const data=await api(`/api/test-runs/${runId}/analyze`,'POST',{execution_ids:ids,refresh});
+    const data=await api(`/api/test-runs/${runId}/analyze`,'POST',{intent_id:intent.intent_id});
     if(version===identityVersion && runId===reportRunId) { reportData=data; drawApiReport(); }
   } finally { if(version===identityVersion && runId===reportRunId) { reportAnalyzing=false; drawApiReport(); } }
 }
@@ -357,7 +369,7 @@ document.addEventListener('toggle',async event=>{
     const evidence=await api(`/api/test-runs/${runId}/executions/${id}`);
     if(version!==identityVersion || reportRunId!==runId || !element.isConnected) return;
     reportEvidence.set(id,evidence);
-    element.querySelector('.quality-evidence-content').innerHTML=`<pre>${json(evidence)}</pre>`;
+    element.querySelector('.quality-evidence-content').innerHTML=qualityEvidenceContent(evidence);
   } catch(error) { if(version===identityVersion && runId===reportRunId) toast(error.message); }
 },true);
 async function executeApiPlan(planId,runId=null) {
@@ -478,9 +490,9 @@ document.addEventListener('click', async event=>{
     else if (action==='view-api-report') location.hash=`test-runs/${id}/report`;
     else if (action==='quality-back') location.hash=`projects/${reportData.metadata.project_id}/test-plans/${id}`;
     else if (action==='quality-export') await download(`/api/test-runs/${reportRunId}/report.${id}`);
-    else if (action==='quality-analyze') showAnalysisDialog(false);
-    else if (action==='quality-reanalyze') showAnalysisDialog(true);
-    else if (action==='quality-confirm-analysis') await analyzeReport(control.dataset.refresh==='true');
+    else if (action==='quality-analyze') await showAnalysisDialog(false);
+    else if (action==='quality-reanalyze') await showAnalysisDialog(true);
+    else if (action==='quality-confirm-analysis') await analyzeReport();
     else if (action==='back-project') { selectedProject=id; location.hash='projects'; }
     else if (action==='delete-api-spec' && confirm(t('confirmDeleteApiSpec'))) { const projectId=selectedProject;
       await api(`/api/projects/${projectId}/api-specs/${encodeURIComponent(id)}`,'DELETE'); apiNotice=null; await apiTesting(projectId); toast(t('deleted')); }
@@ -511,11 +523,11 @@ document.addEventListener('click', async event=>{
   } catch(error) { toast(error.message); } finally { control.disabled=false; }
 });
 document.addEventListener('change', async event=>{
-  if(event.target.classList.contains('quality-selection')) { if(event.target.checked && reportSelection.size>=3) { event.target.checked=false; toast(t('qualityMax')); } else if(event.target.checked) reportSelection.add(event.target.value); else reportSelection.delete(event.target.value); return; }
+  if(event.target.classList.contains('quality-selection')) { invalidateAnalysisIntent(); if($('dialog').open) $('dialog').close(); if(event.target.checked && reportSelection.size>=3) { event.target.checked=false; toast(t('qualityMax')); } else if(event.target.checked) reportSelection.add(event.target.value); else reportSelection.delete(event.target.value); return; }
   if(event.target.id==='api-run-selector') { apiRunSelections.set(workspace+':'+plannerDetailId,event.target.value); await renderApiRuns(plannerDetailId).catch(e=>toast(e.message)); return; }
   try {
     if (event.target.id==='language') { await loadLocale(event.target.value); shell(); if (currentView==='projects' && selectedProject) await projectDetail(selectedProject); }
-    else if (event.target.id==='workspace-selector') { identityVersion++; workspace=event.target.value; selectedProject=''; selectedTask=''; detail=null; projects=[]; tasks=[]; stats={}; model={}; providerConfigs=[]; apiModeProject=''; apiNotice=null; plannerDetailId=''; plannerSpecId=''; apiRunSelections.clear(); apiRunRenderVersion++; reportRunId=''; reportData=null; reportSelection.clear(); reportEvidence.clear(); reportRenderVersion++; reportAnalyzing=false; if(location.hash.includes('/api-testing') || location.hash.includes('/test-plans/') || location.hash.includes('test-runs/')) history.replaceState(null,'','#projects'); clearPasswords(); $('dialog').close(); $('dialog').innerHTML=''; render(); await refresh(); }
+    else if (event.target.id==='workspace-selector') { identityVersion++; workspace=event.target.value; selectedProject=''; selectedTask=''; detail=null; projects=[]; tasks=[]; stats={}; model={}; providerConfigs=[]; apiModeProject=''; apiNotice=null; plannerDetailId=''; plannerSpecId=''; apiRunSelections.clear(); apiRunRenderVersion++; invalidateAnalysisIntent(); reportRunId=''; reportData=null; reportSelection.clear(); reportEvidence.clear(); reportRenderVersion++; reportAnalyzing=false; if(location.hash.includes('/api-testing') || location.hash.includes('/test-plans/') || location.hash.includes('test-runs/')) history.replaceState(null,'','#projects'); clearPasswords(); $('dialog').close(); $('dialog').innerHTML=''; render(); await refresh(); }
     else if (event.target.id==='task-project') await taskEndpoints(event.target.value);
     else if (event.target.id==='planner-spec') { plannerSpecId=event.target.value; $('planner-budget').textContent=plannerBudget(Number(event.target.selectedOptions[0].dataset.endpointCount)); }
     else if (event.target.name==='project_type' && event.target.form?.id==='project-form') { event.target.form.elements.url.required=event.target.value==='web'; }

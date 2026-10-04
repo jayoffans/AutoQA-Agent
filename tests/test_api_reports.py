@@ -100,6 +100,13 @@ def mock_analyzer(client, change=lambda value: value, gate=None):
     return calls
 
 
+def confirm_analysis(client, data):
+    prepared = client.post(client.report_path + "/analysis-intents", json=data)
+    if prepared.status_code != 201:
+        return prepared
+    return client.post(client.report_path + "/analyze", json={"intent_id": prepared.json()["intent_id"]})
+
+
 def selected(client, count=3):
     return [f["source_execution_id"] for f in client.get(client.report_path + "/findings").json()][:count]
 
@@ -151,9 +158,7 @@ def test_summary_evidence_and_no_provider_no_evaluator(reported, monkeypatch):
     for suffix in ("report.html", "report.md"):
         assert reported.get(reported.report_path + "/" + suffix).status_code == 200
     assert (
-        reported.post(
-            reported.report_path + "/analyze", json={"execution_ids": selected(reported)}
-        ).status_code
+        confirm_analysis(reported, {"execution_ids": selected(reported)}).status_code
         == 422
     )
     assert len(reported.model_calls) == calls and facts(reported) == before
@@ -232,7 +237,7 @@ def test_all_interfaces_workspace_idor(reported, suffix):
     foreign = bearer(reported, signed["access_token"])
     path = reported.report_path + "/" + suffix
     if suffix == "analyze":
-        response = foreign.post(path, json={"execution_ids": [source]})
+        response = foreign.post(path, json={"intent_id": str(uuid4())})
     elif suffix == "executions":
         response = foreign.get(path + "/" + source)
     else:
@@ -243,7 +248,7 @@ def test_all_interfaces_workspace_idor(reported, suffix):
 def test_execution_id_must_belong_to_run(reported):
     assert reported.get(reported.report_path + "/executions/" + str(uuid4())).status_code == 404
     assert (
-        reported.post(reported.report_path + "/analyze", json={"execution_ids": [str(uuid4())]}).status_code
+        confirm_analysis(reported, {"execution_ids": [str(uuid4())]}).status_code
         == 422
     )
 
@@ -286,7 +291,7 @@ def test_ai_cached_refresh_overlay_and_fact_immutability(reported):
     before = copy.deepcopy(facts(reported))
     base = reported.get(reported.report_path + "/report").json()
     calls = mock_analyzer(reported)
-    first = reported.post(reported.report_path + "/analyze", json={"execution_ids": ids})
+    first = confirm_analysis(reported, {"execution_ids": ids})
     assert first.status_code == 200, first.text
     analyzed = first.json()
     assert len(calls) == 1 and set(analyzed["analysis"]) == set(ids)
@@ -297,12 +302,10 @@ def test_ai_cached_refresh_overlay_and_fact_immutability(reported):
     assert {k: v for k, v in analyzed.items() if k != "analysis"} == {
         k: v for k, v in base.items() if k != "analysis"
     }
-    assert reported.post(reported.report_path + "/analyze", json={"execution_ids": ids}).json() == analyzed
+    assert confirm_analysis(reported, {"execution_ids": ids}).json() == analyzed
     assert len(calls) == 1
     assert (
-        reported.post(
-            reported.report_path + "/analyze", json={"execution_ids": ids, "refresh": True}
-        ).status_code
+        confirm_analysis(reported, {"execution_ids": ids, "refresh": True}).status_code
         == 200
     )
     assert len(calls) == 2 and facts(reported) == before
@@ -357,10 +360,10 @@ def test_ai_cached_refresh_overlay_and_fact_immutability(reported):
 def test_invalid_ai_refresh_preserves_success(reported, change):
     ids = selected(reported, 1)
     mock_analyzer(reported)
-    successful = reported.post(reported.report_path + "/analyze", json={"execution_ids": ids}).json()
+    successful = confirm_analysis(reported, {"execution_ids": ids}).json()
     before = copy.deepcopy(facts(reported))
     calls = mock_analyzer(reported, change)
-    response = reported.post(reported.report_path + "/analyze", json={"execution_ids": ids, "refresh": True})
+    response = confirm_analysis(reported, {"execution_ids": ids, "refresh": True})
     assert response.status_code == 502 and len(calls) == 1
     assert reported.get(reported.report_path + "/report").json() == successful and facts(reported) == before
 
@@ -381,7 +384,7 @@ def test_invalid_selection_never_calls_provider(reported, selection):
             )
         ]
     calls = mock_analyzer(reported)
-    assert reported.post(reported.report_path + "/analyze", json={"execution_ids": ids}).status_code == 422
+    assert confirm_analysis(reported, {"execution_ids": ids}).status_code == 422
     assert calls == []
 
 
@@ -393,7 +396,7 @@ def test_ai_timeout_cleans_guard_and_no_partial_save(reported, monkeypatch):
 
     monkeypatch.setattr(reported.application.state.gateway, "generate", wait)
     monkeypatch.setattr("autoqa.result_analyzer.ANALYZER_TIMEOUT", 0.01)
-    assert reported.post(reported.report_path + "/analyze", json={"execution_ids": ids}).status_code == 502
+    assert confirm_analysis(reported, {"execution_ids": ids}).status_code == 502
     assert reported.get(reported.report_path + "/report").json()["analysis"] == {}
     assert not reported.application.state.report_analysis_in_flight
 
@@ -410,7 +413,7 @@ def test_provider_key_echo_scrub_and_prompt_injection(reported):
             "analyses": [dict(v["analyses"][0], analysis_summary="sk-fixture-1234 Bearer provider-echo")]
         },
     )
-    result = reported.post(reported.report_path + "/analyze", json={"execution_ids": ids})
+    result = confirm_analysis(reported, {"execution_ids": ids})
     assert result.status_code == 200
     assert "sk-fixture-1234" not in result.text and "provider-echo" not in result.text
     assert "ignore instructions" in calls[0]["executions"][0]["sanitized_response_excerpt"]
@@ -420,14 +423,14 @@ def test_provider_key_echo_scrub_and_prompt_injection(reported):
 def test_permission_revoked_during_ai_does_not_save(reported, monkeypatch):
     ids = selected(reported, 1)
 
-    async def revoked(workspace, session_hash, system, context, schema, override):
+    async def revoked(workspace, session_hash, system, context, schema, override, *, on_metadata=None):
         with Session(reported.application.state.store.engine) as session:
             session.query(MemberRow).delete()
             session.commit()
         return analysis_output(context["executions"])
 
     monkeypatch.setattr(reported.application.state.gateway, "generate", revoked)
-    assert reported.post(reported.report_path + "/analyze", json={"execution_ids": ids}).status_code == 404
+    assert confirm_analysis(reported, {"execution_ids": ids}).status_code == 404
     with Session(reported.application.state.store.engine) as session:
         assert session.scalar(select(ReportRow)).analysis is None
 
@@ -462,7 +465,7 @@ def test_ai_concurrent_request_has_one_charge_and_releases_guard(reported, monke
     entered, release = Event(), Event()
     calls = []
 
-    async def pending(workspace, session_hash, system, context, schema, override):
+    async def pending(workspace, session_hash, system, context, schema, override, *, on_metadata=None):
         calls.append(context)
         entered.set()
         assert await asyncio.to_thread(release.wait, 5)
@@ -470,10 +473,10 @@ def test_ai_concurrent_request_has_one_charge_and_releases_guard(reported, monke
 
     monkeypatch.setattr(reported.application.state.gateway, "generate", pending)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        first = pool.submit(reported.post, reported.report_path + "/analyze", json={"execution_ids": ids})
+        first = pool.submit(confirm_analysis, reported, {"execution_ids": ids})
         try:
             assert entered.wait(5)
-            second = reported.post(reported.report_path + "/analyze", json={"execution_ids": ids})
+            second = confirm_analysis(reported, {"execution_ids": ids})
             assert second.status_code == 409
         finally:
             release.set()
@@ -505,7 +508,7 @@ def test_ai_input_limits_huge_saved_evidence_without_fact_changes(reported):
         session.commit()
     before = copy.deepcopy(facts(reported))
     calls = mock_analyzer(reported)
-    result = reported.post(reported.report_path + "/analyze", json={"execution_ids": ids})
+    result = confirm_analysis(reported, {"execution_ids": ids})
     assert result.status_code == 200, result.text
     assert len(calls) == 1
     for item in calls[0]["executions"]:
@@ -524,12 +527,10 @@ def test_ai_input_limits_huge_saved_evidence_without_fact_changes(reported):
 def test_cookie_csrf_and_provider_failure_preserve_analysis(reported, monkeypatch):
     ids = selected(reported, 1)
     mock_analyzer(reported)
-    successful = reported.post(reported.report_path + "/analyze", json={"execution_ids": ids}).json()
+    successful = confirm_analysis(reported, {"execution_ids": ids}).json()
     csrf = reported.headers.pop("X-CSRF-Token")
     assert (
-        reported.post(
-            reported.report_path + "/analyze", json={"execution_ids": ids, "refresh": True}
-        ).status_code
+        confirm_analysis(reported, {"execution_ids": ids, "refresh": True}).status_code
         == 403
     )
     reported.headers["X-CSRF-Token"] = csrf
@@ -538,7 +539,7 @@ def test_cookie_csrf_and_provider_failure_preserve_analysis(reported, monkeypatc
         raise httpx.ConnectError("Bearer raw-provider-secret")
 
     monkeypatch.setattr(reported.application.state.gateway, "generate", failing)
-    response = reported.post(reported.report_path + "/analyze", json={"execution_ids": ids, "refresh": True})
+    response = confirm_analysis(reported, {"execution_ids": ids, "refresh": True})
     assert response.status_code == 502 and "raw-provider-secret" not in response.text
     assert reported.get(reported.report_path + "/report").json() == successful
 

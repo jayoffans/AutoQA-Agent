@@ -61,7 +61,7 @@ def test_execution_additive_migration_preserves_ready_plans_and_legacy_runs(comp
         assert {fk['referred_table'] for fk in inspector.get_foreign_keys('api_test_executions')} == {
             'workspaces','api_test_runs','ai_test_cases'}
         with engine.connect() as c:
-            assert c.scalar(text('SELECT version_num FROM alembic_version')) == '0010_api_reports'
+            assert c.scalar(text('SELECT version_num FROM alembic_version')) == '0011_alpha_hardening'
             assert c.execute(text('SELECT status,approved_base_url FROM ai_test_plans')).one() == ('ready',None)
             assert c.scalar(text('SELECT execution_config FROM ai_test_cases')) is None
             assert c.scalar(text('SELECT password_hash FROM users')) == 'preserved-hash'

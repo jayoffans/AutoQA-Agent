@@ -15,6 +15,7 @@ from .execution_privacy import redact_assertions, safe_text
 from .product_models import ApiEndpointRow, TestCase, TestExecution, TestPlan
 from .store_base import now
 from .studio_models import ProjectRow, ReportRow
+from .target_network import safe_diagnostics
 from .test_execution_api import execution_status, run_summary
 from .test_plan_api import utc_time
 
@@ -57,6 +58,7 @@ def clean_evidence(row, *, bounded=False):
         "duration_ms": row.duration_ms,
         "error_message": scrub(row.error_message, []),
         "error_code": data.get("error_code"),
+        "diagnostics": safe_diagnostics(data.get("diagnostics")),
         "expected_status": data.get("expected_status"),
         "assertion_results": assertions,
         "assertion_evidence_available": "assertion_results" in data,
@@ -300,6 +302,7 @@ def report_info(row):
 
 
 def export_sections(session, run, report):
+    yield "Candidate Test Intent / AI候选测试意图", "Candidate names are reference only; approved requests, expectations and Evidence describe actual execution. 每条 Case 仅发送一个 HTTP 请求；候选文字不代表实际执行范围。"
     yield "Metadata", report.summary["metadata"]
     yield "Summary · Pass Rate = passed / total × 100", report.summary["summary"]
     yield "Scope", report.summary["scope"]

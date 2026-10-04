@@ -8,7 +8,7 @@ import httpx
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
-from .crypto import mask_key
+from .crypto import mask_key, scrub
 from .planner_diagnostics import numeric_usage
 from .product_models import OnboardingRow, ProviderConfigRow, SessionRow, WorkspaceRow
 from .providers import CompatibleProvider, DeepSeekProvider, OpenAIProvider, ProviderError
@@ -257,6 +257,10 @@ class ProviderGateway:
                 return value
             return hide(result)
         finally:
+            resolved_model = getattr(provider, "resolved_model", None)
+            if (not isinstance(resolved_model, str) or not resolved_model or resolved_model == "auto"
+                    or len(resolved_model) > 160 or scrub(resolved_model, [key]) != resolved_model):
+                resolved_model = None
             if provider:
                 provider.key = ""
             settings.provider_key = ""
@@ -264,4 +268,5 @@ class ProviderGateway:
             if on_metadata is not None:
                 on_metadata({"model_request_count": provider.model_request_count if provider else 0,
                              "completed_model_requests": provider.completed_model_requests if provider else 0,
+                             "resolved_model": resolved_model,
                              "usage": numeric_usage(provider.usage) if provider else None})

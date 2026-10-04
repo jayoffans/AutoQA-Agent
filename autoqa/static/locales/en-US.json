@@ -155,9 +155,9 @@
   "executionApprove": "Approve plan",
   "executionStart": "Execute API tests",
   "executionMissingTarget": "Edit the project and set a public Base URL",
-  "executionHint": "Review requests, expected status and JSON assertions. Defaults are samples; prose steps are not executed. Approval freezes requests, assertions and target.",
-  "executionScenarioReview": "Adjust this scenario request and expected status before approval.",
-  "executionDefaults": "OpenAPI defaults: confirm these suit your test environment.",
+  "executionHint": "AI generates candidate test intent. Each case sends one HTTP request; prose steps are not executed. Review the request, expected status and JSON assertions below. Execution uses the configuration frozen at approval.",
+  "executionScenarioReview": "OpenAPI execution sample; not confirmed to satisfy this scenario or all constraints. Review the request, expected status and assertions.",
+  "executionDefaults": "OpenAPI execution sample; not confirmed to satisfy this scenario or all constraints.",
   "executionRequest": "Request data (JSON)",
   "executionExpectedStatus": "Expected HTTP status",
   "executionRuns": "Test runs",
@@ -208,5 +208,12 @@
   "qualitySuggestions": "AI suggestions",
   "qualityConfidence": "Hypothesis confidence",
   "qualitySuggestedSeverity": "AI suggested severity",
-  "qualityExecuted": "Executed cases"
+  "qualityExecuted": "Executed cases",
+  "candidateIntent": "Candidate Test Intent",
+  "candidateReference": "Candidate prose is reference only and does not establish executed steps or coverage. Approved configuration and Evidence describe actual execution.",
+  "candidateName": "AI candidate name",
+  "executionDiagnostics": "Safe execution diagnostics",
+  "executionFrozen": "Human-approved frozen configuration.",
+  "executionUnknown": "Not saved / Unknown",
+  "qualityIntentExpiry": "Confirmation expires"
 }

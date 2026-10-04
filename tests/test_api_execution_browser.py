@@ -43,6 +43,9 @@ def test_browser_human_review_execute_status_results_reload_mobile(auth_browser,
     expect(page.get_by_role('button',name='执行 API 测试',exact=True)).to_be_disabled()
     expect(page.locator('.execution-request')).to_have_count(8)
     expect(page.locator('.execution-review')).to_contain_text('JSON 断言')
+    expect(page.locator('.execution-review')).to_contain_text('每条 Case 仅发送一个 HTTP 请求')
+    expect(page.locator('.candidate-intent')).to_have_count(8)
+    assert page.locator('.planner-case').first.evaluate("node => node.querySelector('.execution-request').compareDocumentPosition(node.querySelector('.candidate-intent')) & Node.DOCUMENT_POSITION_FOLLOWING")
     gate = Event()
     calls = []
     async def server(request):
@@ -55,6 +58,8 @@ def test_browser_human_review_execute_status_results_reload_mobile(auth_browser,
     expect(page.get_by_role('button',name='执行 API 测试',exact=True)).to_be_enabled()
     page.reload()
     expect(page.locator('.execution-request').first).to_have_attribute('readonly','')
+    expect(page.locator('.planner-case').first).to_contain_text('人工批准的冻结配置')
+    expect(page.locator('.planner-case').first).not_to_contain_text('尚未确认符合当前场景')
     page.get_by_role('button',name='执行 API 测试',exact=True).click()
     try:
         expect(page.locator('.api-run-summary')).to_contain_text('执行中')
@@ -76,6 +81,8 @@ def test_browser_human_review_execute_status_results_reload_mobile(auth_browser,
     page.screenshot(path=str(OUTPUT/'execution-mobile.png'),full_page=True)
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
     page.locator('#language').select_option('en-US')
+    expect(page.locator('.execution-review')).to_contain_text('Each case sends one HTTP request')
+    expect(page.locator('.candidate-intent').first).to_contain_text('Candidate Test Intent')
     expect(page.get_by_role('button',name='Execute API tests',exact=True)).to_be_enabled()
     assert len(calls) == 8 and app.state.target_fixture.mutations == 0 and not errors
 
