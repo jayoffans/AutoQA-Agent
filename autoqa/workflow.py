@@ -54,6 +54,8 @@ class Workflow:
             if state.get("cursor", 0) > 0:
                 raise ValueError("Browser session lost after progress; inspect evidence and create a fresh task")
             browser = BrowserSession(self.settings, self.policy, task_id, state["request"]["step_timeout_ms"])
+            if self.settings.mode == "production":
+                browser.observation_only = not bool(state.get("plan"))
             self.sessions[task_id] = browser
             await browser.start(state["request"]["target_url"])
         return self.sessions[task_id]
@@ -63,7 +65,10 @@ class Workflow:
         self.store.event(task_id, "planner_started", {"node": "Test Planner", "message": "读取页面并生成测试计划"})
         browser = await self.session(state)
         with self.telemetry.span("test-planner", {"task_id": task_id}):
-            plan, mode = await self.planner.plan(TaskCreate(**state["request"]), await browser.snapshot())
+            request_data = state["request"]
+            if self.settings.mode == "production":
+                request_data = {k: v for k, v in request_data.items() if k in TaskCreate.model_fields}
+            plan, mode = await self.planner.plan(TaskCreate(**request_data), await browser.snapshot())
         self.store.update(task_id, plan=plan.model_dump(), planner_mode=mode)
         self.store.event(task_id, "plan_created", {"plan": plan.model_dump(), "mode": mode})
         return {"plan": plan.model_dump(), "cursor": 0, "attempt": 0, "denied": False}
@@ -72,12 +77,13 @@ class Workflow:
         demo_auto = (state["request"]["auto_approve_demo"] and self.policy.is_demo(state["request"]["target_url"])
                      and all(self.policy.is_demo(s["value"]) for s in state["plan"]["steps"]
                              if s["action"] == "navigate"))
-        if not demo_auto and any(s["action"] in MUTATIONS for s in state["plan"]["steps"]):
+        if self.settings.mode == "production" or (not demo_auto and any(
+                s["action"] in MUTATIONS for s in state["plan"]["steps"])):
             approved = interrupt(redact({"scope": "plan", "message": "此计划包含输入或点击，请审批完整计划",
                                          "plan": state["plan"]}))
             if approved is not True:
                 return {"denied": True, "status": "cancelled"}
-        return {"denied": False}
+        return {"denied": False, "plan": self.store.get(state["task_id"], private=True)["plan"]}
 
     async def step_approval(self, state: State):
         step = state["plan"]["steps"][state["cursor"]]
@@ -107,6 +113,9 @@ class Workflow:
             if result["ok"] and state["request"]["strict_runtime_errors"] and runtime_errors(state["evidence"]):
                 result.update(ok=False, error="Runtime verification found Console/Network/origin errors",
                               retryable=False)
+                if self.settings.mode == "production":
+                    result["status"] = "system_error" if any(
+                        entry.get("error") for entry in state["evidence"].get("network", [])) else "failed"
             self.store.step(state["task_id"], state["cursor"], state["attempt"], result)
             self.store.event(state["task_id"], "step_finished", {"node": "Verifier", "index": state["cursor"],
                                                                   "attempt": state["attempt"], **result})
@@ -117,10 +126,10 @@ class Workflow:
                                                        "message": "重试可安全重复的只读步骤"})
             await asyncio.sleep(0.2 * (state["attempt"] + 1))
             return {"attempt": state["attempt"] + 1, "result": result}
-        return {"result": result, "status": "failed"}
+        return {"result": result, "status": "system_error" if result.get("status") == "system_error" else "failed"}
 
     def route(self, state: State):
-        if state.get("status") == "failed":
+        if state.get("status") in {"failed", "system_error"}:
             return "failure_analyzer"
         if state["cursor"] >= len(state["plan"]["steps"]):
             return "finish"
@@ -136,7 +145,7 @@ class Workflow:
                 diagnosis["mcp"] = await browser.mcp_capture()
             self.store.update(state["task_id"], diagnosis=diagnosis)
             self.store.event(state["task_id"], "diagnosis", {"node": "Failure Analyzer", **diagnosis})
-        return {"status": "failed"}
+        return {"status": state.get("status", "failed")}
 
     async def finish(self, state: State):
         status = state.get("status", "passed")

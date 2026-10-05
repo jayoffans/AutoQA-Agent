@@ -3,7 +3,7 @@ on: [push, pull_request, workflow_dispatch]
 jobs:
   tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -13,7 +13,7 @@ jobs:
           cache-dependency-path: requirements.lock
       - run: pip install -r requirements.lock && pip install --no-deps -e .
       - run: python -m playwright install --with-deps chromium
-      - run: ruff check autoqa tests scripts
+      - run: ruff check autoqa tests scripts migrations
       - run: pytest -q --junitxml=work/test-results.xml
       - uses: actions/setup-node@v4
         with:
@@ -23,6 +23,8 @@ jobs:
           node --check autoqa/static/app.js
           node --check autoqa/static/components.js
           node --check autoqa/static/studio-model.js
+          node --check autoqa/static/production.js
+          node --check autoqa/static/i18n.js
       - name: Studio browser acceptance
         env:
           LLM_PROVIDER: mock
@@ -57,35 +59,74 @@ jobs:
             work/test-results.xml
             work/studio-qa/studio-ui-results.json
             work/studio-qa/*.png
+            work/phase6-ui/results.json
+            work/phase6-ui/*.png
+            work/phase6-2b-ui/*.png
+            work/phase6-2c-1a-ui/*.png
+            work/phase6-2c-1b-ui/*.png
+            work/phase6-2c-1c-ui/*.png
+            work/phase6-2c-1d-ui/*.png
+            work/phase6-2c-1e-ui/*.png
             docs/assets/public-ui-results.json
-  mysql:
+  auth-mysql:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    services:
-      mysql:
-        image: mysql:8.4
-        env:
-          MYSQL_DATABASE: autoqa_ci
-          MYSQL_USER: autoqa
-          MYSQL_PASSWORD: autoqa-ci-fixture
-          MYSQL_ROOT_PASSWORD: autoqa-ci-root-fixture
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h localhost --silent"
-          --health-interval=5s --health-timeout=5s --health-retries=30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - run: pip install -r requirements.lock && pip install --no-deps -e .
-      - name: SQLite and real MySQL compatibility
+      - run: python -m playwright install --with-deps chromium
+      - name: Start isolated MySQL with random masked credentials
+        run: python scripts/ci_mysql.py
+      - name: Empty MySQL Alembic CLI upgrade
+        run: |
+          export DATABASE_URL="$AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL"
+          export AUTOQA_MODE=production AUTOQA_ENV=production
+          export AUTOQA_SECRET_KEY="$AUTOQA_CI_SECRET_KEY"
+          python -m alembic upgrade head
+          python -m alembic current
+      - name: SQLite and MySQL auth, permissions, restart and HTTPS browser acceptance
         env:
-          AUTOQA_TEST_MYSQL_URL: mysql+pymysql://autoqa:autoqa-ci-fixture@127.0.0.1:3306/autoqa_ci
-        run: pytest tests/test_database_compatibility.py -q --junitxml=work/mysql-results.xml
+          LLM_PROVIDER: mock
+        run: >-
+          pytest tests/test_production_compatibility.py tests/test_database_compatibility.py
+          tests/test_product_mysql.py tests/test_auth.py tests/test_provider_center.py
+          tests/test_provider_center_compat.py tests/test_api_import_compat.py tests/test_test_planner_compat.py tests/test_api_execution_compat.py tests/test_api_reports_compat.py -q
+          --junitxml=work/production-compat/auth-mysql.xml
+      - name: Remove only this job's disposable MySQL
+        if: always()
+        run: |
+          if [ -n "$AUTOQA_CI_MYSQL_CONTAINER" ]; then
+            docker rm -f -v "$AUTOQA_CI_MYSQL_CONTAINER" >/dev/null
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: mysql-results
-          path: work/mysql-results.xml
+          name: auth-mysql-results
+          path: |
+            work/production-compat/auth-mysql.xml
+            work/production-compat/browser-*.png
+  docker-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.lock && pip install --no-deps -e .
+      - run: python -m playwright install --with-deps chromium
+      - name: Docker build, health, injected settings, named volumes and HTTPS browser
+        env:
+          AUTOQA_RUN_DOCKER: '1'
+          LLM_PROVIDER: mock
+        run: pytest tests/test_docker_production.py -q --junitxml=work/production-compat/docker.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: docker-production-results
+          path: |
+            work/production-compat/docker.xml
+            work/production-compat/browser-docker.png

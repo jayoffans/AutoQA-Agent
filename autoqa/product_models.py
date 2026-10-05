@@ -1,0 +1,310 @@
+"""Production identity and encrypted workspace configuration."""
+from datetime import datetime
+from uuid import uuid4
+
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.mysql import LONGTEXT
+from sqlalchemy.orm import Mapped, mapped_column, synonym
+
+from .store_base import Base, now
+
+
+class UserRow(Base):
+    __tablename__ = "users"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    email: Mapped[str] = mapped_column(String(254), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(256))
+    nickname: Mapped[str] = mapped_column(String(60), default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class WorkspaceRow(Base):
+    __tablename__ = "workspaces"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    # Nullable only to retain historical orphan workspaces; registrations always assign an owner.
+    owner_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class MemberRow(Base):
+    __tablename__ = "workspace_members"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    role: Mapped[str] = mapped_column(String(16))
+    # Retain the Phase 5 composite key and uniqueness contract.
+    id: Mapped[str] = mapped_column(String(36), default=lambda: str(uuid4()), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class SessionRow(Base):
+    __tablename__ = "user_sessions"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    refresh_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class OnboardingRow(Base):
+    __tablename__ = "user_onboarding"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
+    step: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    model_configured: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    project_created: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    first_test_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class ProviderConfigRow(Base):
+    __tablename__ = "provider_configs"
+    __table_args__ = (CheckConstraint(
+        "(is_active = 1 AND active_workspace_id IS NOT NULL AND active_workspace_id = workspace_id) "
+        "OR (is_active = 0 AND active_workspace_id IS NULL)", name="ck_provider_active_workspace"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(24))
+    base_url: Mapped[str] = mapped_column(String(2000))
+    model_name: Mapped[str] = mapped_column(String(160))
+    encrypted_api_key: Mapped[str] = mapped_column(Text)
+    api_key_hint: Mapped[str] = mapped_column(String(40))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # NULL for inactive rows; portable uniqueness on both MySQL and SQLite.
+    active_workspace_id: Mapped[str | None] = mapped_column(String(36), unique=True)
+    connection_status: Mapped[str] = mapped_column(String(16), default="untested", server_default="untested")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+    model = synonym("model_name")
+    key_mask = synonym("api_key_hint")
+
+
+class EnvironmentRow(Base):
+    __tablename__ = "environment_configs"
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), primary_key=True)
+    base_url: Mapped[str] = mapped_column(String(2000))
+    headers: Mapped[dict] = mapped_column(JSON, default=dict)
+    variables: Mapped[dict] = mapped_column(JSON, default=dict)
+    encrypted_secrets: Mapped[str] = mapped_column(Text)
+
+
+class ContractRow(Base):
+    __tablename__ = "api_contracts"
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), primary_key=True)
+    endpoints: Mapped[list] = mapped_column(JSON)
+
+
+class InstallationRow(Base):
+    __tablename__ = "installation_mode"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mode: Mapped[str] = mapped_column(String(24))
+
+
+class ApiSpecRow(Base):
+    __tablename__ = "api_specs"
+    __table_args__ = (
+        ForeignKeyConstraint(["project_id", "workspace_id"], ["projects.id", "projects.workspace_id"],
+                             name="fk_api_specs_project_workspace"),
+        UniqueConstraint("id", "project_id", "workspace_id", name="uq_api_specs_scope"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    version: Mapped[str] = mapped_column(String(100))
+    format: Mapped[str] = mapped_column(String(8))
+    raw_content: Mapped[str] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class ApiEndpointRow(Base):
+    __tablename__ = "api_endpoints"
+    __table_args__ = (
+        UniqueConstraint("id", "workspace_id", name="uq_api_endpoints_workspace"),
+        ForeignKeyConstraint(["project_id", "workspace_id"], ["projects.id", "projects.workspace_id"],
+                             name="fk_api_endpoints_project_workspace"),
+        ForeignKeyConstraint(["spec_id", "project_id", "workspace_id"],
+                             ["api_specs.id", "api_specs.project_id", "api_specs.workspace_id"],
+                             name="fk_api_endpoints_spec_scope", ondelete="CASCADE"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    spec_id: Mapped[str] = mapped_column(String(36), index=True)
+    method: Mapped[str] = mapped_column(String(16))
+    path: Mapped[str] = mapped_column(String(1000))
+    summary: Mapped[str] = mapped_column(String(1000))
+    parameters: Mapped[list] = mapped_column(JSON)
+    request_schema: Mapped[dict] = mapped_column(JSON)
+    response_schema: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class TestPlan(Base):
+    """Independent from legacy task-based Demo plans."""
+    __tablename__ = "ai_test_plans"
+    __table_args__ = (
+        ForeignKeyConstraint(["api_spec_id", "project_id", "workspace_id"],
+                             ["api_specs.id", "api_specs.project_id", "api_specs.workspace_id"],
+                             name="fk_ai_plan_spec_scope"),
+        UniqueConstraint("id", "workspace_id", name="uq_ai_plan_workspace"),
+        UniqueConstraint("id", "project_id", "workspace_id", name="uq_ai_plan_project_workspace"),
+        CheckConstraint("status IN ('draft','generating','ready','failed','approved')", name="ck_ai_plan_status"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    api_spec_id: Mapped[str] = mapped_column(String(36), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="draft")
+    provider: Mapped[str] = mapped_column(String(24))
+    model: Mapped[str] = mapped_column(String(160))
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+    approved_base_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    approved_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TestCase(Base):
+    __tablename__ = "ai_test_cases"
+    __table_args__ = (
+        UniqueConstraint("id", "plan_id", "workspace_id", name="uq_ai_case_plan_workspace"),
+        ForeignKeyConstraint(["plan_id", "workspace_id"], ["ai_test_plans.id", "ai_test_plans.workspace_id"],
+                             name="fk_ai_case_plan_workspace", ondelete="CASCADE"),
+        ForeignKeyConstraint(["endpoint_id", "workspace_id"], ["api_endpoints.id", "api_endpoints.workspace_id"],
+                             name="fk_ai_case_endpoint_workspace"),
+        CheckConstraint("category IN ('positive','negative','boundary','security')", name="ck_ai_case_category"),
+        CheckConstraint("priority IN ('P0','P1','P2','P3')", name="ck_ai_case_priority"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    plan_id: Mapped[str] = mapped_column(String(36), index=True)
+    endpoint_id: Mapped[str] = mapped_column(String(36), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    category: Mapped[str] = mapped_column(String(16))
+    priority: Mapped[str] = mapped_column(String(2))
+    description: Mapped[str] = mapped_column(Text)
+    steps: Mapped[list] = mapped_column(JSON)
+    expected_result: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    execution_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class TestRun(Base):
+    """API plan runs are separate from legacy task/report runs."""
+    __tablename__ = "api_test_runs"
+    __table_args__ = (
+        ForeignKeyConstraint(["plan_id", "project_id", "workspace_id"],
+                             ["ai_test_plans.id", "ai_test_plans.project_id", "ai_test_plans.workspace_id"],
+                             name="fk_api_run_plan_scope"),
+        UniqueConstraint("id", "plan_id", "workspace_id", name="uq_api_run_scope"),
+        UniqueConstraint("id", "workspace_id", name="uq_api_run_workspace"),
+        CheckConstraint("status IN ('running','passed','failed','execution_error','interrupted')", name="ck_api_run_status"),
+        CheckConstraint("total_cases >= 0 AND passed_cases >= 0 AND failed_cases >= 0 "
+                        "AND passed_cases + failed_cases <= total_cases", name="ck_api_run_counts"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    plan_id: Mapped[str] = mapped_column(String(36), index=True)
+    # Database-backed single active run per plan; NULL allows later explicit reruns.
+    active_plan_id: Mapped[str | None] = mapped_column(String(36), unique=True, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="running")
+    total_cases: Mapped[int] = mapped_column(Integer)
+    passed_cases: Mapped[int] = mapped_column(Integer, default=0)
+    failed_cases: Mapped[int] = mapped_column(Integer, default=0)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+
+
+class TestExecution(Base):
+    __tablename__ = "api_test_executions"
+    __table_args__ = (
+        ForeignKeyConstraint(["run_id", "plan_id", "workspace_id"],
+                             ["api_test_runs.id", "api_test_runs.plan_id", "api_test_runs.workspace_id"],
+                             name="fk_api_execution_run_scope"),
+        ForeignKeyConstraint(["case_id", "plan_id", "workspace_id"],
+                             ["ai_test_cases.id", "ai_test_cases.plan_id", "ai_test_cases.workspace_id"],
+                             name="fk_api_execution_case_scope"),
+        UniqueConstraint("run_id", "case_id", name="uq_api_execution_case"),
+        CheckConstraint("duration_ms >= 0", name="ck_api_execution_duration"),
+        CheckConstraint("status IS NULL OR status IN ('passed','failed','execution_error')", name="ck_api_execution_status"),
+        CheckConstraint("status IS NULL OR (status = 'passed' AND passed = 1) OR "
+                        "(status IN ('failed','execution_error') AND passed = 0)", name="ck_api_execution_passed"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    plan_id: Mapped[str] = mapped_column(String(36))
+    run_id: Mapped[str] = mapped_column(String(36), index=True)
+    case_id: Mapped[str] = mapped_column(String(36), index=True)
+    method: Mapped[str] = mapped_column(String(16))
+    url: Mapped[str] = mapped_column(String(4000))
+    request_data: Mapped[dict] = mapped_column(JSON)
+    response_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    response_body: Mapped[str | None] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True)
+    passed: Mapped[bool] = mapped_column(Boolean)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_ms: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    result_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class AnalysisAudit(Base):
+    """One server-issued intent and its single, explicitly confirmed invocation."""
+    __tablename__ = "api_analysis_audits"
+    __table_args__ = (
+        ForeignKeyConstraint(["run_id", "workspace_id"], ["api_test_runs.id", "api_test_runs.workspace_id"],
+                             name="fk_analysis_audit_run_scope"),
+        CheckConstraint("status IN ('prepared','invoking','cached','succeeded','failed','unknown')",
+                        name="ck_analysis_audit_status"),
+        CheckConstraint("request_count IS NULL OR request_count IN (0,1)", name="ck_analysis_audit_count"),
+        CheckConstraint("active_run_id IS NULL OR (active_run_id = run_id AND status = 'invoking')",
+                        name="ck_analysis_audit_active"),
+        CheckConstraint("status != 'cached' OR (request_count IS NOT NULL AND request_count = 0)",
+                        name="ck_analysis_audit_cached"),
+        CheckConstraint("status != 'unknown' OR request_count IS NULL", name="ck_analysis_audit_unknown"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    run_id: Mapped[str] = mapped_column(String(36), index=True)
+    report_id: Mapped[str] = mapped_column(ForeignKey("reports.id"))
+    selected_execution_ids: Mapped[list] = mapped_column(JSON)
+    analyzed_execution_ids: Mapped[list] = mapped_column(JSON)
+    refresh: Mapped[bool] = mapped_column(Boolean)
+    provider: Mapped[str] = mapped_column(String(24))
+    model: Mapped[str] = mapped_column(String(160))
+    resolved_model: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    provider_config_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    provider_config_version: Mapped[str] = mapped_column(String(64))
+    action_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    dispatch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notice_version: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(16), default="prepared")
+    request_count: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    active_run_id: Mapped[str | None] = mapped_column(String(36), unique=True, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(32), nullable=True)

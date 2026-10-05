@@ -30,6 +30,8 @@ class Step(BaseModel):
 class Plan(BaseModel):
     model_config = ConfigDict(extra="forbid")
     summary: str = Field(min_length=1, max_length=1000)
+    scope: str = Field(default="", max_length=2000)
+    preconditions: list[str] = Field(default_factory=list, max_length=40)
     steps: list[Step] = Field(min_length=1, max_length=50)
 
     @model_validator(mode="after")
@@ -57,9 +59,10 @@ class TaskCreate(BaseModel):
 
 class Approval(BaseModel):
     approved: bool
+    plan_hash: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
-TERMINAL = {"passed", "failed", "cancelled", "interrupted"}
+TERMINAL = {"passed", "failed", "cancelled", "interrupted", "system_error"}
 
 
 class ProjectCreate(BaseModel):

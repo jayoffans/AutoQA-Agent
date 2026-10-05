@@ -6,6 +6,8 @@ from autoqa.config import Settings
 
 if __name__ == "__main__":
     settings = Settings()
+    if settings.mode == "production":
+        raise SystemExit("Demo seed is forbidden in Production")
     settings.seed_demo = True
     with TestClient(create_app(settings)) as client:
         client.get("/health").raise_for_status()

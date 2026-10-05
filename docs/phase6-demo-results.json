@@ -1,0 +1,14 @@
+{
+  "passed": 8,
+  "checks": [
+    "Dashboard reads backend seed without credentials",
+    "Seed projects are visible and public project mutation is hidden",
+    "Create limited Demo task and review six-case plan",
+    "Real HTTP execution produces 5 pass, 1 fail, 100% assertion execution and High finding",
+    "Workflow and report survive browser refresh",
+    "Friendly daily rate-limit feedback in UI",
+    "Public pages fit mobile, tablet and desktop viewports",
+    "No browser JavaScript errors"
+  ],
+  "javascript_errors": []
+}

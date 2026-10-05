@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     demo_llm_enabled: bool = Field(default=False, validation_alias="DEMO_LLM_ENABLED")
     seed_demo: bool | None = None
     env: Literal["development", "production", "test"] = "development"
+    mode: Literal["demo", "production"] | None = None
+    secret_key: str = Field(default="", repr=False)
+    allow_private_targets: bool = False
+    runtime_secrets: dict[str, str] = Field(default_factory=dict, repr=False, exclude=True)
+    runtime_headers: dict[str, str] = Field(default_factory=dict, repr=False, exclude=True)
     public_base_url: str = ""
     demo_login_fault: bool = True
     mysql_host: str = Field(default="", validation_alias="MYSQLHOST")
@@ -48,10 +53,14 @@ class Settings(BaseSettings):
 
     @property
     def model_enabled(self) -> bool:
+        if self.mode == "production":
+            return False  # Production resolves credentials exclusively through the workspace gateway.
         return self.llm_provider == "mock" or bool(self.provider_key and self.model_name)
 
     @property
     def provider_key(self) -> str:
+        if self.mode == "production":
+            return ""
         return {"openai": self.openai_api_key, "deepseek": self.deepseek_api_key}.get(
             self.llm_provider, self.llm_api_key)
 
@@ -65,6 +74,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def production_config(self):
+        if self.mode == "production" and self.env == "production" and (
+                "database_url" not in self.model_fields_set or not self.database_url):
+            raise ValueError("Set an explicit DATABASE_URL for production")
         from ipaddress import ip_network
         for cidr in self.trusted_proxy_cidrs.split(","):
             if cidr.strip():
@@ -83,11 +95,22 @@ class Settings(BaseSettings):
             self.database_url = "mysql+pymysql://" + self.database_url[len("mysql://"):]
         if self.demo_mode is None:
             self.demo_mode = self.env == "production"
+        if self.mode is not None:
+            self.demo_mode = self.mode == "demo"
+        if self.mode == "production":
+            import base64
+            try:
+                if len(base64.b64decode(self.secret_key, altchars=b"-_", validate=True)) != 32:
+                    raise ValueError
+            except Exception:
+                raise ValueError("AUTOQA_SECRET_KEY must be a URL-safe base64 encoded random 32-byte key") from None
+            self.seed_demo = False
+            self.mcp_enabled = False
         if self.seed_demo is None:
             self.seed_demo = bool(self.demo_mode)
         if self.env == "production":
             self.mcp_enabled = False
-        if self.env == "production" and not self.demo_mode and not self.api_token:
+        if self.env == "production" and self.mode != "production" and not self.demo_mode and not self.api_token:
             raise ValueError("AUTOQA_API_TOKEN is required in production")
         if self.demo_mode:
             self.mcp_enabled = False

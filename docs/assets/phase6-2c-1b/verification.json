@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-02",
+  "verification": "Full regression plus final focused reruns, deduplicated by test ID",
+  "runs": [
+    {
+      "report": "work/phase6-2c-1b-tests.xml",
+      "counts": {
+        "passed": 375,
+        "failed": 1,
+        "skipped": 29
+      }
+    },
+    {
+      "report": "work/phase6-2c-1b-focused.xml",
+      "counts": {
+        "passed": 57,
+        "skipped": 2
+      }
+    },
+    {
+      "report": "work/phase6-2c-1b-migrations.xml",
+      "counts": {
+        "passed": 2,
+        "skipped": 2
+      }
+    }
+  ],
+  "latest_results": {
+    "passed": 382,
+    "skipped": 29
+  },
+  "test_count": 411,
+  "new_planner_results": {
+    "passed": 54,
+    "skipped": 2
+  },
+  "real_llm_calls": 0,
+  "ruff": "passed",
+  "javascript_syntax": "passed",
+  "diff_check": "passed",
+  "limitations": [
+    "Local MySQL and Docker acceptance were skipped; CI has dedicated jobs."
+  ],
+  "resolved_full_run_failure": "tests.test_api_import_browser.test_browser_upload_json_reload_delete_without_model: assertion updated for the new model configuration entry; final Chromium rerun passed."
+}

@@ -6,7 +6,7 @@ from .config import Settings
 
 def origin(url: str) -> str:
     p = urlsplit(url)
-    if p.scheme not in {"http", "https"} or not p.hostname or p.username or p.password:
+    if p.scheme not in {"http", "https"} or not p.hostname or p.username is not None or p.password is not None:
         raise ValueError("Only HTTP(S) URLs without embedded credentials are supported")
     port = p.port
     host = f"[{p.hostname}]" if ":" in p.hostname else p.hostname
@@ -53,6 +53,7 @@ def redact(value, key: str = ""):
     if isinstance(value, list):
         return [redact(v, key) for v in value]
     if isinstance(value, str):
+        value = re.sub(r"\bsk-[A-Za-z0-9_-]{8,}", "[REDACTED]", value)
         value = re.sub(r"(?i)(bearer\s+)[\w.\-]+", r"\1[REDACTED]", value)
         value = re.sub(r"(?i)((?:token|password|secret|api_key)=)[^&\s]+", r"\1[REDACTED]", value)
         return re.sub(r"\b(\w+(?:\+\w+)?://[^\s/:]+:)[^@\s]+(@)", r"\1[REDACTED]\2", value)

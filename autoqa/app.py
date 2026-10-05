@@ -31,13 +31,17 @@ ROOT = Path(__file__).parent
 
 def create_app(settings: Settings | None = None):
     settings = settings or Settings()
+    if settings.mode == "production":
+        from .product_app import create_product_app
+        return create_product_app(settings)
     policy = TargetPolicy(settings)
 
     @asynccontextmanager
     async def lifespan(app):
         settings.data_dir.mkdir(parents=True, exist_ok=True)
         settings.artifact_dir.mkdir(parents=True, exist_ok=True)
-        store = Store(settings.database_url, settings.artifact_dir, settings.studio_url + "/demo/login.html")
+        store = Store(settings.database_url, settings.artifact_dir, settings.studio_url + "/demo/login.html",
+                      mode=settings.mode or ("demo" if settings.demo_mode else None))
         store.recover()
         app.state.store = store
         if settings.seed_demo:

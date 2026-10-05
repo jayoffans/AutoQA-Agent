@@ -1,7 +1,18 @@
 """Additive relational models beside legacy tasks/steps/events; no destructive migration."""
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -10,7 +21,11 @@ from .store_base import Base, now
 
 class ProjectRow(Base):
     __tablename__ = "projects"
+    __table_args__ = (UniqueConstraint("id", "workspace_id", name="uq_projects_id_workspace"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id"), nullable=True, index=True)
+    project_type: Mapped[str] = mapped_column(String(16), default="web", server_default="web")
+    environment: Mapped[str] = mapped_column(String(80), default="staging", server_default="staging")
     name: Mapped[str] = mapped_column(String(80))
     description: Mapped[str] = mapped_column(Text, default="")
     url: Mapped[str] = mapped_column(String(2000))
@@ -74,8 +89,13 @@ class FindingRow(Base):
 
 class ReportRow(Base):
     __tablename__ = "reports"
+    __table_args__ = (CheckConstraint(
+        "(run_id IS NOT NULL AND api_run_id IS NULL) OR (run_id IS NULL AND api_run_id IS NOT NULL)",
+        name="ck_report_source"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    run_id: Mapped[str] = mapped_column(ForeignKey("test_runs.id"), unique=True)
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("test_runs.id"), unique=True, nullable=True)
+    api_run_id: Mapped[str | None] = mapped_column(ForeignKey("api_test_runs.id"), unique=True, nullable=True)
+    analysis: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     summary: Mapped[dict] = mapped_column(JSON)
     html_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     html_content: Mapped[str] = mapped_column(Text().with_variant(LONGTEXT(), "mysql"))

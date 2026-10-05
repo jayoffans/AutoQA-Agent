@@ -55,7 +55,8 @@ class Runner:
             diagnosis = {"category": category, "summary": "Task could not complete" if public else type(error).__name__,
                          "suggestion": "Please retry later or review the Demo report." if public else str(error)[:1500],
                          "root_cause_confirmed": False}
-            self.store.update(task_id, status="failed", diagnosis=diagnosis, approval=None)
+            self.store.update(task_id, status="system_error" if self.workflow.settings.mode == "production" else "failed",
+                              diagnosis=diagnosis, approval=None)
             self.store.event(task_id, "error", diagnosis)
             log.warning("Task %s failed: %s", task_id, type(error).__name__)
         finally:

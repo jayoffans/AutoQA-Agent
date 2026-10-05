@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autoqa-agent"
-version = "1.0.0"
+version = "2.0.0"
 description = "Checkpointed browser testing and evidence-based failure diagnosis"
 requires-python = ">=3.11"
 dependencies = [
@@ -12,7 +12,10 @@ dependencies = [
   "pydantic-settings>=2.7,<3", "sqlalchemy>=2.0,<3", "pymysql>=1.1,<2",
   "cryptography>=44", "playwright>=1.51,<2", "langgraph>=1.0,<2",
   "langgraph-checkpoint-sqlite>=3,<4", "httpx>=0.28,<1",
-  "langfuse>=3.3,<5", "mcp>=1.9,<2"
+  "langfuse>=3.3,<5", "mcp>=1.9,<2",
+  "alembic>=1.16,<2", "PyYAML>=6,<7", "jsonschema>=4.23,<5", "PyJWT>=2.10.1,<3",
+  "prance>=25.4.8,<26", "openapi-spec-validator>=0.8.5,<0.9",
+  "jsonschema-path>=0.4.6,<0.5", "python-multipart>=0.0.22,<1"
 ]
 
 [project.optional-dependencies]
@@ -22,7 +25,12 @@ dev = ["pytest>=8,<10", "pytest-asyncio>=0.25,<2", "ruff>=0.11,<1"]
 include = ["autoqa*"]
 
 [tool.setuptools.package-data]
-autoqa = ["static/*", "demo/*"]
+autoqa = ["static/*", "static/locales/*", "demo/*"]
+
+[tool.setuptools.data-files]
+"." = ["alembic.ini"]
+"migrations" = ["migrations/env.py"]
+"migrations/versions" = ["migrations/versions/0001_legacy.py", "migrations/versions/0002_product.py", "migrations/versions/0003_auth.py", "migrations/versions/0004_onboarding.py", "migrations/versions/0005_provider_center.py", "migrations/versions/0006_api_import.py", "migrations/versions/0007_test_planner.py", "migrations/versions/0008_api_execution.py", "migrations/versions/0009_execution_assertions.py", "migrations/versions/0010_api_reports.py", "migrations/versions/0011_alpha_hardening.py"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

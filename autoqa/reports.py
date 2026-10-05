@@ -8,9 +8,13 @@ def report_metrics(task: dict) -> dict:
     latest = {step["index"]: step for step in task["steps"]}
     assertions = [(index, step) for index, step in enumerate(planned) if step["action"].startswith("assert_")]
     executed = [latest[index] for index, _ in assertions if index in latest]
-    return {"total": len(assertions), "passed": sum(bool(step["ok"]) for step in executed),
-            "failed": sum(not step["ok"] for step in executed), "pending": len(assertions) - len(executed),
+    metrics = {"total": len(assertions), "passed": sum(bool(step["ok"]) for step in executed),
+            "failed": sum(not step["ok"] and step.get("status") != "system_error" for step in executed),
+            "pending": len(assertions) - len(executed),
             "coverage": int(len(executed) / len(assertions) * 100 + 0.5) if assertions else None}
+    if task.get("production"):
+        metrics["errors"] = sum(step.get("status") == "system_error" for step in executed)
+    return metrics
 
 
 def report_issues(task: dict) -> list[dict]:
@@ -22,8 +26,8 @@ def report_issues(task: dict) -> list[dict]:
     issues = [{"id": f'BUG-{task["id"]}-{step["index"] + 1}', "severity": severity,
                "description": step.get("error") or step["step"]["description"],
                "suggestion": diagnosis.get("suggestion") or "检查页面状态、定位器与预期结果，并复核步骤证据。"}
-              for step in latest.values() if not step["ok"]]
-    if not issues and diagnosis and task["status"] == "failed":
+              for step in latest.values() if not step["ok"] and step.get("status") != "system_error"]
+    if not issues and diagnosis and task["status"] == "failed" and not task.get("production"):
         issues.append({"id": f'RUN-{task["id"]}', "severity": severity,
                        "description": diagnosis.get("summary", "运行失败"),
                        "suggestion": diagnosis.get("suggestion", "检查运行证据。")})
@@ -38,10 +42,15 @@ def report_html(task: dict) -> str:
     issues = report_issues(task)
     planned = (task.get("plan") or {}).get("steps", [])
     latest = {step["index"]: step for step in task["steps"]}
+    def result_label(step):
+        if not task.get("production"):
+            return "PASS" if step["ok"] else "FAIL"
+        return "执行错误" if step.get("status") == "system_error" else "已通过" if step["ok"] else "未通过"
     # Keep every execution attempt as an auditable history; summaries deduplicate retries.
     rows = "".join(
         f'<tr><td>{step["index"] + 1}</td><td>{esc(step["step"]["description"])}</td>'
-        f'<td>{"PASS" if step["ok"] else "FAIL"}</td><td>{step["duration_ms"]} ms</td>'
+        f'<td>{result_label(step)}</td>'
+        f'<td>{step["duration_ms"]} ms</td>'
         f'<td>{step["attempt"] + 1}</td><td>{esc(step.get("error") or "—")}</td></tr>'
         for step in task["steps"]
     )
@@ -57,10 +66,10 @@ def report_html(task: dict) -> str:
     cards = "".join(
         f'<article><span>{label}</span><strong>{esc(value)}</strong><small>{note}</small></article>'
         for label, value, note in [
-            ("Total Cases", metrics["total"], "计划中的显式断言"),
-            ("Passed", metrics["passed"], "按最终尝试统计"),
-            ("Failed", metrics["failed"], f'{metrics["pending"]} 个断言未执行'),
-            ("Execution Coverage", f'{metrics["coverage"]}%' if metrics["coverage"] is not None else "—", "计划断言执行覆盖率 · 非代码覆盖率"),
+            ("测试用例", metrics["total"], "计划中的显式断言"),
+            ("已通过", metrics["passed"], "按最终尝试统计"),
+            ("未通过", metrics["failed"], f'{metrics.get("errors", 0)} 个执行错误 · {metrics["pending"]} 个未执行'),
+            ("执行覆盖率", f'{metrics["coverage"]}%' if metrics["coverage"] is not None else "—", "计划断言执行覆盖率 · 非代码覆盖率"),
         ]
     )
     preview = ("" if task["status"] in {"passed", "failed", "cancelled", "interrupted"}
@@ -82,16 +91,16 @@ def report_html(task: dict) -> str:
     article{{padding:14px}}h1{{font-size:26px}}}}@media print{{:root{{color-scheme:light}}body{{background:white;
     color:black}}article,table,pre,th{{background:white;color:black}}td,th,pre,article{{border-color:#aaa}}
     p,small,article strong,.brand{{color:#444}}main{{padding:0}}article{{break-inside:avoid}}}}</style></head><body><main>
-    <div class="brand">AUTOQA STUDIO / QUALITY ENGINEERING</div><h1>Test Report · 测试报告</h1>
+    <div class="brand">AUTOQA STUDIO</div><h1>{"测试报告" if task.get("production") else "Test Report · 测试报告"}</h1>
     <p>任务：{esc(task["id"])} · 创建时间：{esc(task.get("created_at"))}</p>
     <p>状态：<strong>{esc(task["status"])}</strong> · 规划模式：{esc(task["planner_mode"])}</p>
     <p>需求：{esc(task["request"]["goal"])}</p><p>目标：{esc(task["request"]["target_url"])}</p>{preview}
     <div class="cards">{cards}</div><p>覆盖率 = 已执行断言 / 计划断言，不是代码覆盖率。
     流程可因操作或运行异常失败，即使 Failed 断言数为 0；任务状态优先。</p>
-    <h2>Issues Found · 运行问题（{len(issues)}）</h2><p>Severity 按故障类别规则分级，根因待确认。</p>
-    <div class="table-wrap"><table><thead><tr><th>ID</th><th>Severity</th><th>Description</th><th>Suggestion</th>
+    <h2>问题发现（{len(issues)}）</h2><p>严重程度按故障类别规则分级，根因待确认。修复建议为 AI 分析建议。</p>
+    <div class="table-wrap"><table><thead><tr><th>ID</th><th>严重程度</th><th>描述</th><th>AI 分析建议</th>
     </tr></thead><tbody>{bug_rows}</tbody></table></div>
-    <h2>Execution History · 步骤与重试记录</h2><div class="table-wrap"><table><thead><tr><th>步骤</th><th>描述</th>
+    <h2>执行历史 · 步骤与重试记录</h2><div class="table-wrap"><table><thead><tr><th>步骤</th><th>描述</th>
     <th>结果</th><th>耗时</th><th>尝试</th><th>错误</th></tr></thead><tbody>{rows}</tbody></table></div>
     <h2>诊断依据</h2><pre>{esc(json.dumps(task["diagnosis"], ensure_ascii=False, indent=2))}</pre>
     <p>诊断为证据归类，后端根因仍需结合服务日志确认。截图、DOM 与 Playwright Trace 可在工作流页面下载。</p>

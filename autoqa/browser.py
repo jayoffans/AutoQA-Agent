@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import socket
 import time
 from pathlib import Path
@@ -8,6 +9,7 @@ from urllib.parse import urljoin
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright, expect
 
 from .config import Settings
+from .crypto import scrub
 from .mcp_bridge import DevToolsBridge
 from .schemas import RETRYABLE, Step
 from .security import TargetPolicy, redact, safe_url
@@ -50,6 +52,7 @@ class BrowserSession:
         self.browser_url = ""
         self.mcp = None
         self.mcp_error = ""
+        self.observation_only = settings.mode == "production"
 
     async def start(self, target_url: str):
         self.policy.validate(target_url)
@@ -62,7 +65,10 @@ class BrowserSession:
         self.browser = await self.playwright.chromium.launch(headless=self.settings.headless, args=args)
         self.context = await self.browser.new_context(viewport={"width": 1365, "height": 900},
                                                        service_workers="block", accept_downloads=False)
-        await self.context.tracing.start(screenshots=True, snapshots=True, sources=False)
+        if self.settings.mode != "production":
+            await self.context.tracing.start(screenshots=True, snapshots=True, sources=False)
+        else:
+            await self.context.route_web_socket("**/*", lambda websocket: websocket.close())
         await self.context.route("**/*", self.route)
         self.page = await self.context.new_page()
         self.page.set_default_timeout(self.timeout)
@@ -86,6 +92,10 @@ class BrowserSession:
 
     async def route(self, route):
         url = route.request.url
+        if self.observation_only and route.request.method not in {"GET", "HEAD"}:
+            self.blocked.append({"url": safe_url(url), "reason": "human_review_required"})
+            await route.abort("blockedbyclient")
+            return
         if url.startswith(("data:", "blob:", "about:")):
             await route.continue_()
             return
@@ -98,6 +108,30 @@ class BrowserSession:
         # Do not let an allowed endpoint redirect the browser to another origin
         # before the redirect destination has been checked.
         try:
+            if self.settings.mode == "production":
+                import httpx
+
+                from .security import origin
+                from .target_network import PinnedTransport, fetch_limited
+                headers = dict(route.request.headers)
+                if origin(url) == self.policy.target:
+                    headers.update(self.settings.runtime_headers)
+                else:
+                    for key in list(headers):
+                        if key.lower() in {"authorization", "cookie", "proxy-authorization"} or key in self.settings.runtime_headers:
+                            del headers[key]
+                async with httpx.AsyncClient(transport=PinnedTransport(self.settings.allow_private_targets),
+                                             trust_env=False, follow_redirects=False, timeout=self.timeout / 1000) as client:
+                    response = await fetch_limited(client, route.request.method, url, headers=headers,
+                                                   content=route.request.post_data_buffer, max_bytes=5_000_000)
+                location = response.headers.get("location")
+                if 300 <= response.status_code < 400 and location:
+                    self.policy.validate(urljoin(url, location), resource=not route.request.is_navigation_request())
+                reply_headers = dict(response.headers)
+                for key in ("content-encoding", "content-length", "transfer-encoding"):
+                    reply_headers.pop(key, None)
+                await route.fulfill(status=response.status_code, headers=reply_headers, body=response.content)
+                return
             response = await route.fetch(max_redirects=0, timeout=self.timeout)
             location = response.headers.get("location")
             if 300 <= response.status < 400 and location:
@@ -111,10 +145,17 @@ class BrowserSession:
 
     async def snapshot(self):
         dom = await self.page.evaluate(DOM_SCRIPT)
-        return {"url": safe_url(self.page.url), "title": dom["title"], "text": dom["text"],
-                "elements": dom["elements"]}
+        return scrub({"url": safe_url(self.page.url), "title": dom["title"], "text": dom["text"],
+                      "elements": dom["elements"]}, self.settings.runtime_secrets.values())
 
     async def execute(self, step: Step) -> dict:
+        if self.settings.mode == "production" and step.value:
+            def resolve(match):
+                key = match[1]
+                if key not in self.settings.runtime_secrets:
+                    raise ValueError("Missing runtime variable")
+                return self.settings.runtime_secrets[key]
+            step = step.model_copy(update={"value": re.sub(r"\{\{([A-Za-z0-9_]+)\}\}", resolve, step.value)})
         start = time.monotonic()
         result = {"step": step.model_dump(), "ok": True, "error": None, "retryable": step.action in RETRYABLE}
         try:
@@ -148,6 +189,10 @@ class BrowserSession:
         except Exception as error:
             result.update(ok=False, error="Browser operation failed; review the evidence." if
                           self.settings.env == "production" else str(error)[:3500], error_type=type(error).__name__)
+        if self.settings.mode == "production":
+            result = scrub(result, self.settings.runtime_secrets.values())
+            result["status"] = "passed" if result["ok"] else (
+                "failed" if step.action.startswith("assert_") else "system_error")
         result["duration_ms"] = round((time.monotonic() - start) * 1000)
         return result
 
@@ -155,16 +200,21 @@ class BrowserSession:
         prefix = f"step-{index + 1:02d}-attempt-{attempt + 1}"
         names = {"screenshot": f"{prefix}.png", "dom": f"{prefix}.html", "telemetry": f"{prefix}.json"}
         try:
-            await self.page.screenshot(path=str(self.directory / names["screenshot"]), full_page=True,
-                                       mask=[self.page.locator('input[type="password"]')], timeout=5000)
+            if self.settings.mode == "production" and self.settings.runtime_secrets:
+                # Arbitrary websites can echo credentials anywhere in pixels. Do not persist those images.
+                names.pop("screenshot", None)
+            else:
+                await self.page.screenshot(path=str(self.directory / names["screenshot"]), full_page=True,
+                                           mask=[self.page.locator('input[type="password"]')], timeout=5000)
             dom = await self.page.evaluate(DOM_SCRIPT)
-            (self.directory / names["dom"]).write_text(dom["html"], encoding="utf-8")
+            (self.directory / names["dom"]).write_text(
+                scrub(dom["html"], self.settings.runtime_secrets.values()), encoding="utf-8")
         except Exception as error:
             names = {"capture_error": "Evidence capture failed" if self.settings.env == "production" else str(error)[:300]}
             dom = {"text": "", "title": ""}
-        evidence = redact({"console": self.console[-100:], "network": self.network[-150:],
+        evidence = scrub({"console": self.console[-100:], "network": self.network[-150:],
                            "blocked": self.blocked[-50:], "url": safe_url(self.page.url),
-                           "title": dom["title"], "text": dom["text"]})
+                           "title": dom["title"], "text": dom["text"]}, self.settings.runtime_secrets.values())
         telemetry_name = f"{prefix}.json"
         (self.directory / telemetry_name).write_text(json.dumps(evidence, ensure_ascii=False, indent=2),
                                                      encoding="utf-8")
@@ -189,7 +239,7 @@ class BrowserSession:
         try:
             if self.mcp:
                 await self.mcp.close()
-            if self.context:
+            if self.context and self.settings.mode != "production":
                 trace_temp = self.directory / ".trace.tmp.zip"
                 await self.context.tracing.stop(path=str(trace_temp))
                 trace_temp.replace(self.directory / "trace.zip")

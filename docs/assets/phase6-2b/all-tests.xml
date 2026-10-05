@@ -1,0 +1,350 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testsuites name="pytest tests">
+  <testsuite name="pytest" errors="0" failures="0" skipped="25" tests="295" time="312.018" timestamp="2026-10-01T20:02:06.289080+08:00">
+    <testcase classname="tests.test_auth" name="test_register_success" time="0.766" />
+    <testcase classname="tests.test_auth" name="test_duplicate_email" time="0.733" />
+    <testcase classname="tests.test_auth" name="test_login_success" time="0.826" />
+    <testcase classname="tests.test_auth" name="test_wrong_password" time="1.015" />
+    <testcase classname="tests.test_auth" name="test_register_creates_workspace" time="0.604" />
+    <testcase classname="tests.test_auth" name="test_workspace_owner" time="0.563" />
+    <testcase classname="tests.test_auth" name="test_member_relation" time="0.570" />
+    <testcase classname="tests.test_auth" name="test_refresh_token" time="0.704" />
+    <testcase classname="tests.test_auth" name="test_jwt_lifetime_claims_and_no_plaintext_storage" time="0.569" />
+    <testcase classname="tests.test_auth" name="test_refresh_cookie_csrf_and_bootstrap" time="0.606" />
+    <testcase classname="tests.test_auth" name="test_refresh_replay_rejected" time="0.599" />
+    <testcase classname="tests.test_auth" name="test_concurrent_refresh_is_single_use" time="0.604" />
+    <testcase classname="tests.test_auth" name="test_logout_revokes_refresh_and_access" time="0.585" />
+    <testcase classname="tests.test_auth" name="test_logout_after_access_expiry" time="0.627" />
+    <testcase classname="tests.test_auth" name="test_bearer_logout_and_separate_login_sessions" time="0.885" />
+    <testcase classname="tests.test_auth" name="test_invalid_jwt_rejected[expired]" time="0.557" />
+    <testcase classname="tests.test_auth" name="test_invalid_jwt_rejected[signature]" time="0.554" />
+    <testcase classname="tests.test_auth" name="test_invalid_jwt_rejected[issuer]" time="0.543" />
+    <testcase classname="tests.test_auth" name="test_invalid_jwt_rejected[audience]" time="0.551" />
+    <testcase classname="tests.test_auth" name="test_invalid_jwt_rejected[missing_exp]" time="0.548" />
+    <testcase classname="tests.test_auth" name="test_invalid_jwt_rejected[future]" time="0.546" />
+    <testcase classname="tests.test_auth" name="test_invalid_jwt_rejected[none]" time="0.555" />
+    <testcase classname="tests.test_auth" name="test_refresh_token_cannot_access_business_or_access_token_refresh" time="0.615" />
+    <testcase classname="tests.test_auth" name="test_disabled_user_denied_login_access_refresh" time="0.919" />
+    <testcase classname="tests.test_auth" name="test_expired_refresh_denied" time="0.564" />
+    <testcase classname="tests.test_auth" name="test_registration_transaction_rolls_back" time="0.552" />
+    <testcase classname="tests.test_auth" name="test_password_tokens_and_validation_not_logged" time="0.570" />
+    <testcase classname="tests.test_auth" name="test_user_cannot_access_other_workspace_project" time="0.796" />
+    <testcase classname="tests.test_auth" name="test_user_cannot_access_other_workspace_task" time="0.817" />
+    <testcase classname="tests.test_auth" name="test_user_cannot_access_other_workspace_report" time="0.936" />
+    <testcase classname="tests.test_auth" name="test_user_cannot_access_other_workspace_artifact" time="0.861" />
+    <testcase classname="tests.test_auth" name="test_artifact_path_traversal_rejected" time="1.022" />
+    <testcase classname="tests.test_auth" name="test_artifact_symlink_rejected" time="0.778">
+      <skipped type="pytest.skip" message="Windows symlink privilege unavailable; this test runs in Linux CI">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_auth.py:340: Windows symlink privilege unavailable; this test runs in Linux CI</skipped>
+    </testcase>
+    <testcase classname="tests.test_auth" name="test_artifact_directory_alias_to_other_task_rejected" time="1.274" />
+    <testcase classname="tests.test_auth" name="test_removed_member_loses_access_immediately" time="0.814" />
+    <testcase classname="tests.test_auth" name="test_workspace_owner_cannot_be_added_as_role" time="0.946" />
+    <testcase classname="tests.test_auth" name="test_production_business_requires_auth[/api/projects]" time="0.396" />
+    <testcase classname="tests.test_auth" name="test_production_business_requires_auth[/api/tasks]" time="0.383" />
+    <testcase classname="tests.test_auth" name="test_production_business_requires_auth[/api/tasks/unknown/workflow]" time="0.386" />
+    <testcase classname="tests.test_auth" name="test_production_business_requires_auth[/api/tasks/unknown/report]" time="0.387" />
+    <testcase classname="tests.test_auth" name="test_production_business_requires_auth[/api/tasks/unknown/findings]" time="0.372" />
+    <testcase classname="tests.test_auth" name="test_production_business_requires_auth[/api/tasks/unknown/artifacts/screenshot.png]" time="0.398" />
+    <testcase classname="tests.test_auth" name="test_production_no_seed" time="0.389" />
+    <testcase classname="tests.test_auth" name="test_new_user_empty_workspace" time="1.108" />
+    <testcase classname="tests.test_auth" name="test_refresh_after_restart_preserves_project" time="0.784" />
+    <testcase classname="tests.test_auth" name="test_phase5_migration_preserves_accounts_and_upgrades_password_on_login[sqlite]" time="1.199" />
+    <testcase classname="tests.test_auth" name="test_phase5_migration_preserves_accounts_and_upgrades_password_on_login[mysql]" time="0.005">
+      <skipped type="pytest.skip" message="No disposable Phase 6 MySQL supplied; migration acceptance runs in CI">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_auth.py:424: No disposable Phase 6 MySQL supplied; migration acceptance runs in CI</skipped>
+    </testcase>
+    <testcase classname="tests.test_auth_browser" name="test_production_register_project_logout_relogin_second_user_isolation" time="5.112" />
+    <testcase classname="tests.test_auth_browser" name="test_browser_refresh_and_returning_session_after_access_cookie_expiry" time="3.057" />
+    <testcase classname="tests.test_boundaries" name="test_auth_and_url_boundaries" time="0.276" />
+    <testcase classname="tests.test_boundaries" name="test_plan_limits_and_assertions" time="0.265" />
+    <testcase classname="tests.test_boundaries" name="test_model_adapter_validates_real_response" time="0.006" />
+    <testcase classname="tests.test_boundaries" name="test_redaction_masks_fill_and_credentials" time="0.001" />
+    <testcase classname="tests.test_browser_e2e" name="test_real_browser_flows[login.html-\u767b\u5f55\u5e76\u5b8c\u6210\u591a\u9875\u9762\u6d4b\u8bd5-passed-None]" time="11.552" />
+    <testcase classname="tests.test_browser_e2e" name="test_real_browser_flows[broken.html-\u8bca\u65ad\u7f51\u7edc\u63a5\u53e3\u6545\u969c-failed-network_error]" time="2.790" />
+    <testcase classname="tests.test_browser_e2e" name="test_real_browser_flows[console.html-\u8bca\u65ad\u524d\u7aef\u5f02\u5e38\u548c\u63a7\u5236\u53f0-failed-frontend_error]" time="2.846" />
+    <testcase classname="tests.test_browser_e2e" name="test_real_browser_flows[form.html-\u8fd0\u884c\u9519\u8bef\u65ad\u8a00-failed-assertion_error]" time="3.786" />
+    <testcase classname="tests.test_browser_e2e" name="test_real_browser_flows[form.html-\u5b9a\u4f4d\u5931\u8d25\u548c\u9009\u62e9\u5668\u8bca\u65ad-failed-element_error]" time="3.647" />
+    <testcase classname="tests.test_browser_e2e" name="test_retry_only_read_step" time="4.091" />
+    <testcase classname="tests.test_browser_e2e" name="test_step_approval[True-passed]" time="3.468" />
+    <testcase classname="tests.test_browser_e2e" name="test_step_approval[False-cancelled]" time="3.429" />
+    <testcase classname="tests.test_browser_e2e" name="test_plan_checkpoint_survives_process_restart" time="11.641" />
+    <testcase classname="tests.test_browser_e2e" name="test_step_checkpoint_does_not_replay_mutations_after_restart" time="6.584" />
+    <testcase classname="tests.test_browser_e2e" name="test_cancel_and_timeout" time="6.454" />
+    <testcase classname="tests.test_browser_e2e" name="test_sse_report_and_artifact_isolation" time="4.030" />
+    <testcase classname="tests.test_browser_policy" name="test_redirect_is_blocked_before_contacting_unallowed_origin" time="1.539" />
+    <testcase classname="tests.test_database_compatibility" name="test_database_runtime_roundtrips_transactions_and_seed[sqlite]" time="0.712" />
+    <testcase classname="tests.test_database_compatibility" name="test_database_runtime_roundtrips_transactions_and_seed[mysql]" time="0.004">
+      <skipped type="pytest.skip" message="No disposable MySQL service supplied; runtime compatibility remains unverified locally">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_database_compatibility.py:31: No disposable MySQL service supplied; runtime compatibility remains unverified locally</skipped>
+    </testcase>
+    <testcase classname="tests.test_docker_production" name="test_docker_build_container_nonroot_and_health" time="0.001">
+      <skipped type="pytest.skip" message="Set AUTOQA_RUN_DOCKER=1 to build and run disposable production containers">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_docker_production.py:123: Set AUTOQA_RUN_DOCKER=1 to build and run disposable production containers</skipped>
+    </testcase>
+    <testcase classname="tests.test_docker_production" name="test_docker_all_required_environment_variables_reach_settings" time="0.000">
+      <skipped type="pytest.skip" message="Set AUTOQA_RUN_DOCKER=1 to build and run disposable production containers">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_docker_production.py:135: Set AUTOQA_RUN_DOCKER=1 to build and run disposable production containers</skipped>
+    </testcase>
+    <testcase classname="tests.test_docker_production" name="test_named_volumes_survive_down_up_container_recreation" time="0.000">
+      <skipped type="pytest.skip" message="Set AUTOQA_RUN_DOCKER=1 to build and run disposable production containers">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_docker_production.py:149: Set AUTOQA_RUN_DOCKER=1 to build and run disposable production containers</skipped>
+    </testcase>
+    <testcase classname="tests.test_docker_production" name="test_docker_https_browser_registration_reload_logout_relogin" time="0.000">
+      <skipped type="pytest.skip" message="Set AUTOQA_RUN_DOCKER=1 to build and run disposable production containers">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_docker_production.py:182: Set AUTOQA_RUN_DOCKER=1 to build and run disposable production containers</skipped>
+    </testcase>
+    <testcase classname="tests.test_onboarding" name="test_new_user_onboarding_created" time="0.579" />
+    <testcase classname="tests.test_onboarding" name="test_existing_user_skip_onboarding" time="0.740" />
+    <testcase classname="tests.test_onboarding" name="test_onboarding_workspace_isolation" time="0.812" />
+    <testcase classname="tests.test_onboarding" name="test_shared_workspace_never_exposes_another_users_progress" time="1.157" />
+    <testcase classname="tests.test_onboarding" name="test_skip_model_does_not_claim_configuration" time="0.605" />
+    <testcase classname="tests.test_onboarding" name="test_first_project_persisted_with_selected_type_and_no_fake_target[api]" time="0.624" />
+    <testcase classname="tests.test_onboarding" name="test_first_project_persisted_with_selected_type_and_no_fake_target[web]" time="0.613" />
+    <testcase classname="tests.test_onboarding" name="test_completion_is_separate_from_model_and_first_test" time="0.634" />
+    <testcase classname="tests.test_onboarding" name="test_first_project_rejects_invalid_input_and_identity_overrides[payload0]" time="0.602" />
+    <testcase classname="tests.test_onboarding" name="test_first_project_rejects_invalid_input_and_identity_overrides[payload1]" time="0.588" />
+    <testcase classname="tests.test_onboarding" name="test_first_project_rejects_invalid_input_and_identity_overrides[payload2]" time="0.822" />
+    <testcase classname="tests.test_onboarding" name="test_first_project_rejects_invalid_input_and_identity_overrides[payload3]" time="0.606" />
+    <testcase classname="tests.test_onboarding" name="test_first_project_rejects_invalid_input_and_identity_overrides[payload4]" time="0.605" />
+    <testcase classname="tests.test_onboarding" name="test_steps_cannot_be_skipped_or_progress_forged" time="0.614" />
+    <testcase classname="tests.test_onboarding" name="test_first_project_retry_and_concurrency_create_only_one_project" time="0.619" />
+    <testcase classname="tests.test_onboarding" name="test_onboarding_requires_authentication_and_cookie_csrf" time="0.580" />
+    <testcase classname="tests.test_onboarding" name="test_onboarding_atomic_registration_failure_leaves_no_rows" time="0.544" />
+    <testcase classname="tests.test_onboarding" name="test_onboarding_survives_restart_and_relogin" time="0.993" />
+    <testcase classname="tests.test_onboarding" name="test_existing_model_configuration_marks_own_milestone[workspace]" time="0.605" />
+    <testcase classname="tests.test_onboarding" name="test_existing_model_configuration_marks_own_milestone[session]" time="1.041" />
+    <testcase classname="tests.test_onboarding" name="test_first_test_completed_requires_finished_execution" time="0.938" />
+    <testcase classname="tests.test_onboarding" name="test_onboarding_migration_preserves_existing_users_and_is_idempotent" time="0.242" />
+    <testcase classname="tests.test_onboarding_browser" name="test_registration_enters_chinese_onboarding_and_blocks_dashboard_deep_link" time="2.542" />
+    <testcase classname="tests.test_onboarding_browser" name="test_model_entry_opens_center_and_skip_keeps_unconfigured" time="3.045" />
+    <testcase classname="tests.test_onboarding_browser" name="test_complete_onboarding_saves_project_and_dashboard_progress[api]" time="3.067" />
+    <testcase classname="tests.test_onboarding_browser" name="test_complete_onboarding_saves_project_and_dashboard_progress[web]" time="3.070" />
+    <testcase classname="tests.test_onboarding_browser" name="test_refresh_resumes_each_saved_step_without_duplicate_projects" time="3.067" />
+    <testcase classname="tests.test_onboarding_browser" name="test_existing_user_direct_dashboard_even_with_onboarding_hash" time="3.059" />
+    <testcase classname="tests.test_onboarding_browser" name="test_mobile_and_i18n_onboarding" time="2.544" />
+    <testcase classname="tests.test_onboarding_browser" name="test_switching_accounts_clears_onboarding_and_project_state" time="3.045" />
+    <testcase classname="tests.test_phase2" name="test_project_crud_persists_across_application_restart" time="0.337" />
+    <testcase classname="tests.test_phase2" name="test_project_validation_and_builtin_guard" time="0.408" />
+    <testcase classname="tests.test_phase2" name="test_tasks_cases_runs_and_reports_survive_store_restart" time="0.337" />
+    <testcase classname="tests.test_phase2" name="test_workflow_inputs_outputs_and_timestamps_are_persistent" time="0.338" />
+    <testcase classname="tests.test_phase2" name="test_archiving_project_keeps_tasks_and_report" time="0.323" />
+    <testcase classname="tests.test_phase2" name="test_dashboard_counts_all_history_not_only_recent_list" time="0.779" />
+    <testcase classname="tests.test_phase2" name="test_legacy_database_backfill_is_additive_and_idempotent" time="0.869" />
+    <testcase classname="tests.test_phase2" name="test_restart_marks_running_tasks_interrupted_with_report" time="0.293" />
+    <testcase classname="tests.test_phase2" name="test_project_workflow_and_dashboard_require_auth" time="0.268" />
+    <testcase classname="tests.test_phase2" name="test_generic_environment_aliases_and_secret_repr" time="0.002" />
+    <testcase classname="tests.test_phase2" name="test_mysql_connection_url_encodes_password_without_connecting" time="0.002" />
+    <testcase classname="tests.test_phase2" name="test_provider_failure_does_not_leak_credentials_or_fallback" time="0.003" />
+    <testcase classname="tests.test_phase2" name="test_mock_plan_is_valid_and_does_not_accept_invented_expectations" time="0.003" />
+    <testcase classname="tests.test_phase2" name="test_api_plan_resume_after_restart_executes_real_endpoint_contract" time="0.649" />
+    <testcase classname="tests.test_phase2" name="test_production_requires_auth_and_port_is_not_hardcoded" time="0.003" />
+    <testcase classname="tests.test_phase3" name="test_public_defaults_and_seed_restart_idempotency" time="0.572" />
+    <testcase classname="tests.test_phase3" name="test_production_private_mode_disables_debugging" time="0.013" />
+    <testcase classname="tests.test_phase3" name="test_public_mutation_and_file_boundaries" time="0.385" />
+    <testcase classname="tests.test_phase3" name="test_demo_mock_workflow_ownership_and_ip_limit" time="1.079" />
+    <testcase classname="tests.test_phase3" name="test_global_quota_is_atomic_across_sources_and_restart" time="0.417" />
+    <testcase classname="tests.test_phase3" name="test_invalid_tasks_do_not_spend_quota_and_zero_limit" time="0.344" />
+    <testcase classname="tests.test_phase3" name="test_public_seed_remains_visible_after_large_shared_history" time="0.976" />
+    <testcase classname="tests.test_phase3" name="test_safe_errors_validation_and_logs" time="0.325" />
+    <testcase classname="tests.test_phase3" name="test_railway_mysql_url_normalization_and_schema[mysql]" time="0.006" />
+    <testcase classname="tests.test_phase3" name="test_railway_mysql_url_normalization_and_schema[mysql+mysqlconnector]" time="0.006" />
+    <testcase classname="tests.test_phase3" name="test_railway_mysql_url_normalization_and_schema[mysql+pymysql]" time="0.005" />
+    <testcase classname="tests.test_phase3" name="test_sql_checkpointer_persists_interrupt_and_resumes" time="0.310" />
+    <testcase classname="tests.test_product" name="test_production_empty_and_no_demo_assets" time="0.611" />
+    <testcase classname="tests.test_product" name="test_identity_password_hash_session_and_csrf" time="0.897" />
+    <testcase classname="tests.test_product" name="test_workspace_byok_encrypt_mask_and_no_plaintext" time="0.612" />
+    <testcase classname="tests.test_product" name="test_session_key_not_persisted_or_shared_and_removed_on_logout" time="0.893" />
+    <testcase classname="tests.test_product" name="test_no_developer_or_mock_fallback[False]" time="0.587" />
+    <testcase classname="tests.test_product" name="test_no_developer_or_mock_fallback[True]" time="0.733" />
+    <testcase classname="tests.test_product" name="test_api_contract_human_edit_execution_and_history" time="0.963" />
+    <testcase classname="tests.test_product" name="test_environment_secret_roundtrip_and_artifact_redaction" time="0.882" />
+    <testcase classname="tests.test_product" name="test_user_workspace_project_task_and_artifact_isolation" time="1.835" />
+    <testcase classname="tests.test_product" name="test_owner_member_access_and_provider_permissions" time="0.884" />
+    <testcase classname="tests.test_product" name="test_api_network_error_is_not_business_failure" time="0.854" />
+    <testcase classname="tests.test_product" name="test_gateway_selects_user_provider_without_environment_keys[deepseek]" time="0.594" />
+    <testcase classname="tests.test_product" name="test_gateway_selects_user_provider_without_environment_keys[openai]" time="0.570" />
+    <testcase classname="tests.test_product" name="test_gateway_selects_user_provider_without_environment_keys[compatible]" time="0.549" />
+    <testcase classname="tests.test_product" name="test_production_ssrf_boundaries[http://localhost]" time="0.569" />
+    <testcase classname="tests.test_product" name="test_production_ssrf_boundaries[http://127.0.0.1]" time="0.579" />
+    <testcase classname="tests.test_product" name="test_production_ssrf_boundaries[http://10.1.2.3]" time="0.716" />
+    <testcase classname="tests.test_product" name="test_production_ssrf_boundaries[http://172.16.1.1]" time="0.573" />
+    <testcase classname="tests.test_product" name="test_production_ssrf_boundaries[http://192.168.1.1]" time="0.570" />
+    <testcase classname="tests.test_product" name="test_production_ssrf_boundaries[http://169.254.169.254/latest/meta-data]" time="0.580" />
+    <testcase classname="tests.test_product" name="test_production_ssrf_boundaries[http://[::1]]" time="0.565" />
+    <testcase classname="tests.test_product" name="test_production_ssrf_boundaries[http://[::ffff:127.0.0.1]]" time="0.572" />
+    <testcase classname="tests.test_product" name="test_production_ssrf_boundaries[file:///etc/passwd]" time="0.587" />
+    <testcase classname="tests.test_product" name="test_production_ssrf_boundaries[ftp://example.com]" time="0.558" />
+    <testcase classname="tests.test_product" name="test_production_ssrf_boundaries[http://user:secret@qa.example]" time="0.574" />
+    <testcase classname="tests.test_product" name="test_production_ssrf_boundaries[https://qa.example:22]" time="0.990" />
+    <testcase classname="tests.test_product" name="test_dns_rebinding_pins_connection_and_preserves_tls_hostname" time="0.334" />
+    <testcase classname="tests.test_product" name="test_openapi_arbitrary_paths_parameters_bodies_and_schemas[json]" time="0.001" />
+    <testcase classname="tests.test_product" name="test_openapi_arbitrary_paths_parameters_bodies_and_schemas[yaml]" time="0.003" />
+    <testcase classname="tests.test_product" name="test_openapi_arbitrary_paths_parameters_bodies_and_schemas[swagger]" time="0.001" />
+    <testcase classname="tests.test_product" name="test_remote_refs_yaml_aliases_and_unsupported_plan_targets_rejected" time="0.580" />
+    <testcase classname="tests.test_product" name="test_openapi_url_and_manual_endpoint_import" time="0.605" />
+    <testcase classname="tests.test_product" name="test_legacy_database_migration_preserves_data_and_mode_refuses_reuse" time="0.323" />
+    <testcase classname="tests.test_product" name="test_production_database_cannot_be_opened_as_demo[demo]" time="0.244" />
+    <testcase classname="tests.test_product" name="test_production_database_cannot_be_opened_as_demo[None]" time="0.216" />
+    <testcase classname="tests.test_product" name="test_seed_helper_cannot_write_production_fixture" time="0.399" />
+    <testcase classname="tests.test_product" name="test_chinese_i18n_keys_and_production_assets" time="0.394" />
+    <testcase classname="tests.test_product" name="test_production_global_provider_factory_refuses_mock_and_developer_keys" time="0.387" />
+    <testcase classname="tests.test_product" name="test_byok_failure_is_sanitized_and_returns_no_key" time="0.568" />
+    <testcase classname="tests.test_product" name="test_workspace_key_survives_restart_but_session_key_does_not" time="1.941" />
+    <testcase classname="tests.test_product" name="test_session_expiry_revokes_cookie_and_volatile_key" time="0.576" />
+    <testcase classname="tests.test_product" name="test_production_requires_strong_encryption_master_key[]" time="0.002" />
+    <testcase classname="tests.test_product" name="test_production_requires_strong_encryption_master_key[weak-password]" time="0.002" />
+    <testcase classname="tests.test_product" name="test_production_requires_strong_encryption_master_key[eHh4eHh4eHh4eHh4eHh4eA==]" time="0.001" />
+    <testcase classname="tests.test_product_browser" name="test_real_web_target_plan_edit_approval_browser_evidence_and_run_only_account" time="4.823" />
+    <testcase classname="tests.test_product_browser" name="test_real_web_requires_review_even_for_read_only_assertions" time="2.300" />
+    <testcase classname="tests.test_product_browser" name="test_production_ui_empty_onboarding_language_and_model_no_seeds" time="4.605" />
+    <testcase classname="tests.test_product_mysql" name="test_mysql_production_identity_byok_environments_execution_and_restart" time="0.005">
+      <skipped type="pytest.skip" message="No disposable Production MySQL supplied; real MySQL acceptance runs in CI">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_product_mysql.py:17: No disposable Production MySQL supplied; real MySQL acceptance runs in CI</skipped>
+    </testcase>
+    <testcase classname="tests.test_production_compatibility" name="test_empty_database_cli_migration_chain_tables_constraints[sqlite]" time="8.074" />
+    <testcase classname="tests.test_production_compatibility" name="test_empty_database_cli_migration_chain_tables_constraints[mysql]" time="0.006">
+      <skipped type="pytest.skip" message="Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_production_compatibility.py:79: Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance</skipped>
+    </testcase>
+    <testcase classname="tests.test_production_compatibility" name="test_cli_upgrade_head_twice_preserves_account[sqlite]" time="4.104" />
+    <testcase classname="tests.test_production_compatibility" name="test_cli_upgrade_head_twice_preserves_account[mysql]" time="0.006">
+      <skipped type="pytest.skip" message="Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_production_compatibility.py:103: Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance</skipped>
+    </testcase>
+    <testcase classname="tests.test_production_compatibility" name="test_production_mysql_connections_use_utc_after_pool_reconnect[sqlite]" time="0.507" />
+    <testcase classname="tests.test_production_compatibility" name="test_production_mysql_connections_use_utc_after_pool_reconnect[mysql]" time="0.005">
+      <skipped type="pytest.skip" message="Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_production_compatibility.py:113: Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance</skipped>
+    </testcase>
+    <testcase classname="tests.test_production_compatibility" name="test_register_atomic_workspace_unicode_owner_and_hashes[sqlite]" time="1.022" />
+    <testcase classname="tests.test_production_compatibility" name="test_register_atomic_workspace_unicode_owner_and_hashes[mysql]" time="0.006">
+      <skipped type="pytest.skip" message="Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_production_compatibility.py:127: Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance</skipped>
+    </testcase>
+    <testcase classname="tests.test_production_compatibility" name="test_duplicate_email_rolls_back_related_rows[sqlite]" time="1.033" />
+    <testcase classname="tests.test_production_compatibility" name="test_duplicate_email_rolls_back_related_rows[mysql]" time="0.006">
+      <skipped type="pytest.skip" message="Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_production_compatibility.py:147: Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance</skipped>
+    </testcase>
+    <testcase classname="tests.test_production_compatibility" name="test_login_refresh_execution_report_logout_complete_lifecycle[sqlite]" time="2.256" />
+    <testcase classname="tests.test_production_compatibility" name="test_login_refresh_execution_report_logout_complete_lifecycle[mysql]" time="0.007">
+      <skipped type="pytest.skip" message="Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_production_compatibility.py:157: Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance</skipped>
+    </testcase>
+    <testcase classname="tests.test_production_compatibility" name="test_refresh_concurrency_single_winner[sqlite]" time="1.036" />
+    <testcase classname="tests.test_production_compatibility" name="test_refresh_concurrency_single_winner[mysql]" time="0.005">
+      <skipped type="pytest.skip" message="Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_production_compatibility.py:182: Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance</skipped>
+    </testcase>
+    <testcase classname="tests.test_production_compatibility" name="test_database_expired_refresh_rejected_in_utc[sqlite]" time="1.024" />
+    <testcase classname="tests.test_production_compatibility" name="test_database_expired_refresh_rejected_in_utc[mysql]" time="0.006">
+      <skipped type="pytest.skip" message="Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_production_compatibility.py:198: Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance</skipped>
+    </testcase>
+    <testcase classname="tests.test_production_compatibility" name="test_foreign_workspace_project_and_header_isolation[sqlite]" time="1.024" />
+    <testcase classname="tests.test_production_compatibility" name="test_foreign_workspace_project_and_header_isolation[mysql]" time="0.005">
+      <skipped type="pytest.skip" message="Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_production_compatibility.py:208: Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance</skipped>
+    </testcase>
+    <testcase classname="tests.test_production_compatibility" name="test_foreign_task_report_findings_and_artifact_isolation[sqlite]" time="2.089" />
+    <testcase classname="tests.test_production_compatibility" name="test_foreign_task_report_findings_and_artifact_isolation[mysql]" time="0.005">
+      <skipped type="pytest.skip" message="Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_production_compatibility.py:223: Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance</skipped>
+    </testcase>
+    <testcase classname="tests.test_production_compatibility" name="test_member_removal_takes_effect_on_mysql_and_sqlite[sqlite]" time="1.034" />
+    <testcase classname="tests.test_production_compatibility" name="test_member_removal_takes_effect_on_mysql_and_sqlite[mysql]" time="0.005">
+      <skipped type="pytest.skip" message="Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_production_compatibility.py:240: Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance</skipped>
+    </testcase>
+    <testcase classname="tests.test_production_compatibility" name="test_production_cookie_secure_csrf_and_origin[sqlite]" time="1.034" />
+    <testcase classname="tests.test_production_compatibility" name="test_production_cookie_secure_csrf_and_origin[mysql]" time="0.005">
+      <skipped type="pytest.skip" message="Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_production_compatibility.py:259: Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance</skipped>
+    </testcase>
+    <testcase classname="tests.test_production_compatibility" name="test_secrets_absent_from_logs_and_response_validation[sqlite]" time="1.022" />
+    <testcase classname="tests.test_production_compatibility" name="test_secrets_absent_from_logs_and_response_validation[mysql]" time="0.005">
+      <skipped type="pytest.skip" message="Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_production_compatibility.py:269: Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance</skipped>
+    </testcase>
+    <testcase classname="tests.test_production_compatibility" name="test_real_https_service_restart_persists_user_workspace_project_report_artifact[sqlite]" time="11.023" />
+    <testcase classname="tests.test_production_compatibility" name="test_real_https_service_restart_persists_user_workspace_project_report_artifact[mysql]" time="0.006">
+      <skipped type="pytest.skip" message="Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_production_compatibility.py:281: Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance</skipped>
+    </testcase>
+    <testcase classname="tests.test_production_compatibility" name="test_production_https_browser_reload_logout_relogin_keeps_project[sqlite]" time="12.801" />
+    <testcase classname="tests.test_production_compatibility" name="test_production_https_browser_reload_logout_relogin_keeps_project[mysql]" time="0.005">
+      <skipped type="pytest.skip" message="Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_production_compatibility.py:310: Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance</skipped>
+    </testcase>
+    <testcase classname="tests.test_production_settings" name="test_required_environment_values_are_injected" time="0.007" />
+    <testcase classname="tests.test_production_settings" name="test_production_database_address_must_be_explicit[None]" time="0.002" />
+    <testcase classname="tests.test_production_settings" name="test_production_database_address_must_be_explicit[]" time="0.001" />
+    <testcase classname="tests.test_production_settings" name="test_development_sqlite_default_and_demo_seed_unchanged" time="0.002" />
+    <testcase classname="tests.test_production_settings" name="test_production_compose_requires_credentials_and_preserves_named_volumes" time="0.003" />
+    <testcase classname="tests.test_production_settings" name="test_shutdown_with_completed_jobs_from_closed_server_loop" time="0.002" />
+    <testcase classname="tests.test_provider_center" name="test_provider_key_encrypted" time="0.599" />
+    <testcase classname="tests.test_provider_center" name="test_provider_api_not_return_plain_key" time="0.652" />
+    <testcase classname="tests.test_provider_center" name="test_provider_key_mask[sk-fixture-1234-sk-********1234]" time="0.600" />
+    <testcase classname="tests.test_provider_center" name="test_provider_key_mask[12345678-sk-************]" time="0.597" />
+    <testcase classname="tests.test_provider_center" name="test_provider_key_mask[opaque-fixture-token-abcd-sk-********abcd]" time="0.576" />
+    <testcase classname="tests.test_provider_center" name="test_workspace_provider_isolation" time="1.810" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes0]" time="0.589" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes1]" time="0.610" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes2]" time="0.577" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes3]" time="0.588" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes4]" time="0.593" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes5]" time="0.597" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes6]" time="0.653" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes7]" time="0.592" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes8]" time="0.601" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes9]" time="0.580" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes10]" time="0.589" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes11]" time="0.592" />
+    <testcase classname="tests.test_provider_center" name="test_invalid_provider_config[changes12]" time="0.586" />
+    <testcase classname="tests.test_provider_center" name="test_provider_address_rejected_without_secret_echo[]" time="0.566" />
+    <testcase classname="tests.test_provider_center" name="test_provider_address_rejected_without_secret_echo[http://model.example/v1]" time="0.581" />
+    <testcase classname="tests.test_provider_center" name="test_provider_address_rejected_without_secret_echo[http://127.0.0.1]" time="0.579" />
+    <testcase classname="tests.test_provider_center" name="test_provider_address_rejected_without_secret_echo[file:///secret]" time="0.554" />
+    <testcase classname="tests.test_provider_center" name="test_provider_address_rejected_without_secret_echo[https://user:password@model.example/v1]" time="0.587" />
+    <testcase classname="tests.test_provider_center" name="test_provider_address_rejected_without_secret_echo[https://model.example/v1?key=fixture]" time="0.573" />
+    <testcase classname="tests.test_provider_center" name="test_provider_address_rejected_without_secret_echo[https://model.example/v1#fragment]" time="0.570" />
+    <testcase classname="tests.test_provider_center" name="test_provider_address_rejected_without_secret_echo[https://169.254.169.254]" time="0.561" />
+    <testcase classname="tests.test_provider_center" name="test_provider_address_rejected_without_secret_echo[https://model.example:22]" time="0.570" />
+    <testcase classname="tests.test_provider_center" name="test_connection_failure_safe_response[401]" time="0.603" />
+    <testcase classname="tests.test_provider_center" name="test_connection_failure_safe_response[403]" time="0.600" />
+    <testcase classname="tests.test_provider_center" name="test_connection_failure_safe_response[404]" time="0.617" />
+    <testcase classname="tests.test_provider_center" name="test_connection_failure_safe_response[429]" time="0.602" />
+    <testcase classname="tests.test_provider_center" name="test_connection_failure_safe_response[500]" time="1.702" />
+    <testcase classname="tests.test_provider_center" name="test_connection_failure_safe_response[302]" time="0.605" />
+    <testcase classname="tests.test_provider_center" name="test_connection_exception_is_safe[ConnectError]" time="0.594" />
+    <testcase classname="tests.test_provider_center" name="test_connection_exception_is_safe[ReadTimeout]" time="0.596" />
+    <testcase classname="tests.test_provider_center" name="test_connection_exception_is_safe[RuntimeError]" time="0.596" />
+    <testcase classname="tests.test_provider_center" name="test_connection_minimal_request_uses_workspace_key[deepseek]" time="0.662" />
+    <testcase classname="tests.test_provider_center" name="test_connection_minimal_request_uses_workspace_key[openai]" time="0.630" />
+    <testcase classname="tests.test_provider_center" name="test_connection_minimal_request_uses_workspace_key[compatible]" time="0.631" />
+    <testcase classname="tests.test_provider_center" name="test_connection_invalid_response_is_safe[body0]" time="0.595" />
+    <testcase classname="tests.test_provider_center" name="test_connection_invalid_response_is_safe[body1]" time="0.587" />
+    <testcase classname="tests.test_provider_center" name="test_connection_invalid_response_is_safe[body2]" time="0.593" />
+    <testcase classname="tests.test_provider_center" name="test_connection_response_size_is_limited" time="0.590" />
+    <testcase classname="tests.test_provider_center" name="test_connection_total_deadline_returns_safe_error" time="0.609" />
+    <testcase classname="tests.test_provider_center" name="test_legacy_provider_api_rejects_keys_in_public_metadata[/api/provider]" time="0.765" />
+    <testcase classname="tests.test_provider_center" name="test_legacy_provider_api_rejects_keys_in_public_metadata[/api/provider/test]" time="0.565" />
+    <testcase classname="tests.test_provider_center" name="test_provider_defaults[deepseek-https://api.deepseek.com]" time="0.578" />
+    <testcase classname="tests.test_provider_center" name="test_provider_defaults[openai-https://api.openai.com/v1]" time="0.593" />
+    <testcase classname="tests.test_provider_center" name="test_multiple_configs_one_active_and_gateway_selection" time="0.648" />
+    <testcase classname="tests.test_provider_center" name="test_database_rejects_two_active_providers" time="0.565" />
+    <testcase classname="tests.test_provider_center" name="test_database_rejects_active_flag_without_workspace_slot" time="0.583" />
+    <testcase classname="tests.test_provider_center" name="test_concurrent_provider_creates_preserve_all_and_single_active" time="0.678" />
+    <testcase classname="tests.test_provider_center" name="test_delete_active_promotes_remaining_and_last_clears_milestone" time="0.632" />
+    <testcase classname="tests.test_provider_center" name="test_delete_inactive_preserves_default" time="1.037" />
+    <testcase classname="tests.test_provider_center" name="test_provider_onboarding_milestone_and_next_step" time="0.613" />
+    <testcase classname="tests.test_provider_center" name="test_session_config_encrypted_isolated_and_not_persisted" time="0.614" />
+    <testcase classname="tests.test_provider_center" name="test_member_reads_masks_but_cannot_mutate_or_spend" time="1.841" />
+    <testcase classname="tests.test_provider_center" name="test_provider_endpoints_require_login_and_cookie_csrf" time="0.563" />
+    <testcase classname="tests.test_provider_center" name="test_unknown_config_test_does_not_call_provider" time="0.593" />
+    <testcase classname="tests.test_provider_center" name="test_provider_envelope_cannot_move_between_records_or_workspaces" time="0.815" />
+    <testcase classname="tests.test_provider_center" name="test_ciphertext_nonce_random_and_master_key_requires_256_bits" time="0.598" />
+    <testcase classname="tests.test_provider_center" name="test_create_failure_rolls_back_default_and_onboarding" time="0.605" />
+    <testcase classname="tests.test_provider_center" name="test_provider_config_and_test_status_survive_restart" time="0.789" />
+    <testcase classname="tests.test_provider_center" name="test_gateway_releases_decrypted_provider_references[False]" time="0.601" />
+    <testcase classname="tests.test_provider_center" name="test_gateway_releases_decrypted_provider_references[True]" time="0.593" />
+    <testcase classname="tests.test_provider_center_browser" name="test_onboarding_model_center_save_advances_without_executing" time="3.063" />
+    <testcase classname="tests.test_provider_center_browser" name="test_model_list_connection_dashboard_default_switch_and_delete" time="4.096" />
+    <testcase classname="tests.test_provider_center_browser" name="test_model_dialog_cancel_and_failure_clear_key" time="3.566" />
+    <testcase classname="tests.test_provider_center_browser" name="test_provider_page_workspace_switch_isolates_and_member_view_readonly" time="3.561" />
+    <testcase classname="tests.test_provider_center_browser" name="test_model_center_mobile_and_no_browser_secret_storage" time="3.057" />
+    <testcase classname="tests.test_provider_center_compat" name="test_provider_migration_preserves_legacy_ciphertext_and_schema[sqlite]" time="1.796" />
+    <testcase classname="tests.test_provider_center_compat" name="test_provider_migration_preserves_legacy_ciphertext_and_schema[mysql]" time="0.004">
+      <skipped type="pytest.skip" message="Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_provider_center_compat.py:20: Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance</skipped>
+    </testcase>
+    <testcase classname="tests.test_provider_center_compat" name="test_provider_center_database_parity_create_test_switch_and_delete[sqlite]" time="1.476" />
+    <testcase classname="tests.test_provider_center_compat" name="test_provider_center_database_parity_create_test_switch_and_delete[mysql]" time="0.004">
+      <skipped type="pytest.skip" message="Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance">C:\Users\13432\.codex\worktrees\d187\AutoQA-Agent\tests\test_provider_center_compat.py:54: Supply AUTOQA_TEST_COMPAT_MYSQL_ADMIN_URL for real MySQL acceptance</skipped>
+    </testcase>
+    <testcase classname="tests.test_proxy_quota" name="test_proxy_addresses_require_trusted_peer_and_single_valid_header" time="0.002" />
+    <testcase classname="tests.test_proxy_quota" name="test_quota_survives_rotating_trusted_gateways_cookies_and_restart" time="0.791" />
+    <testcase classname="tests.test_studio_reports" name="test_recovered_retry_is_one_passed_case_without_issue" time="0.001" />
+    <testcase classname="tests.test_studio_reports" name="test_failure_before_assertions_does_not_invent_passes_or_coverage" time="0.001" />
+    <testcase classname="tests.test_studio_reports" name="test_planning_failure_has_runtime_issue_and_unknown_coverage" time="0.001" />
+    <testcase classname="tests.test_studio_reports" name="test_cancelled_partial_run_keeps_pending_cases" time="0.000" />
+    <testcase classname="tests.test_telemetry" name="test_real_langfuse_sdk_exports_redacted_observations" time="2.733" />
+  </testsuite>
+</testsuites>
