@@ -57,9 +57,9 @@ AI 生成的是待审核计划，不会直接发起测试请求。人工批准�
 
 ## 真实验收与 CI
 
-正式版上线验收的公网执行覆盖 **24 个用例 / 6 个 endpoints**：Hardening 后 **22 passed、2 deliberately failed、0 execution_error**；安全诊断和报告汇总一致。两条 deliberate failure 是预设失败断言，用于确认失败能被报告，不能解读为执行故障。
+在独立的受控公网 **Alpha Target** 上，Hardening 后执行 **24 个用例 / 6 个 endpoints**，结果为 **22 passed、2 条预设断言失败、0 execution_error**；安全诊断与报告汇总一致。两条预设失败用于验证失败断言能如实报告。**这是上线前受控 Alpha 执行验收，并非 Production 实例上的 24 Case 实测。**
 
-Production 切换及实际重启后的 HTTPS、登录、OpenAPI 和安全检查分别通过 **62 项**与 **23 项**验收。GitHub Actions 的 Production-ready release 工作流于 [2026-10-05 成功完成](https://github.com/jayoffans/AutoQA-Agent/actions/runs/37274547291)，其中包含 MySQL 与 Docker 验收。测试使用隔离的目标和模拟模型服务，不调用真实模型账户。
+Production 切换及实际重启后的 HTTPS、登录、OpenAPI 和安全检查分别通过 **62 项**与 **23 项**验收。GitHub Actions 的 Production-ready release 工作流于 [2026-10-05 成功完成](https://github.com/jayoffans/AutoQA-Agent/actions/runs/37274547291)，其中包含 MySQL 与 Docker 验收。上线前的自动化与受控执行验收未调用真实模型账户；Production 已通过部署、重启和持久化检查，但尚未进行真实 BYOK 推理验收。
 
 ## 本地启动
 
