@@ -40,6 +40,7 @@
 | 最终锁版本全量 pytest / MySQL / Docker | 独立源码副本、独立 venv，707 项：703 passed、4 errors、0 failures、0 skipped；4 errors 均为 Docker 构建 fixture 失败，不能称全量通过。真实 MySQL 已启用。原始记录 `work/final-regression/work/final-full.xml`；后续定向复验与最终 CI 结果见本轮 PR 验收表，不修改测试断言、超时或 skip 条件 |
 | 本地 Docker 构建诊断 | 一次独立原样构建复现 `files.pythonhosted.org` 的 pip 读取超时，退出 1；日志保留在 `work/public-release/docker-build.log`。不把构建尝试写成 runtime 通过，最终 CI Docker 门禁另行核对 |
 | 启动与 Chromium | 隔离副本 `start.cmd -NoBrowser` 真正启动、health/root 200、仅 loopback、Demo/Mock；7 组真实浏览器检查通过（6 用例人工审批、5 passed + 1 预设失败、报告刷新保持、3 种视口、0 JS errors）。最终锁版本启动 smoke 亦通过，补充脚本结果见 PR |
+| 最终锁版本补充浏览器（2026-10-22） | Studio 12 / 12、本地 HTTPS Demo 8 / 8，通过；JavaScript errors 均为 0。Studio 首轮网络故障状态等待超时，原样复验通过；未修改产品、测试断言或阈值，保留首轮失败日志，未将历史 JSON 当成本次结果 |
 | 启动失败处理 | 无效配置退出 1、canary 未输出、已有 `.env` 不变；端口占用退出 3、readiness job 数为 0。首次标准 venv 安装遇下载 hash mismatch 时拒绝安装；官方文件重下与 PyPI hash 一致，正常重试安装并启动成功，未关闭校验 |
 | 本轮最终 Actions | 合并前必须核对最终 head 的 `tests`、`auth-mysql`、`docker-production` 全部 success；run 链接及最终状态记在 PR，不以 PR #2 的旧 run 代替 |
 

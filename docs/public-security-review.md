@@ -1,5 +1,13 @@
 # 公开前敏感信息审核（2026-10-21）
 
+## 2026-10-22 提交绑定复核
+
+对 `1a6062aa843d867ed29d391ef853f8f9f3b3ed4f` 及全部可达 refs 再次导出扫描：683 个可达对象、478 个 blob、32 个 commit；远程 main 仍为 `ca6c423d`。全 blob 与 commit 的 Gitleaks 原始退出码为 1、14 条告警，仍全部来自下文三类既知 fixture / 迁移误报，没有新增真实秘密。
+
+当前 226 个 tracked / 非忽略 untracked 文件的 Gitleaks 原始退出码为 1，仅命中 `tests/test_provider_center_compat.py:16`、`tests/test_production_compatibility.py:84`、`tests/test_product.py:29`；禁止文件为 0、已知本机秘密匹配为 0。全可达历史中的禁止文件与已知秘密匹配也均为 0。新提交的 author / committer 均确认使用 GitHub noreply 地址。
+
+本轮只公开脱敏定位与计数。原始 pytest 日志 / XML 的 traceback 可能包含进程环境信息，全部保留在 ignored `work/` 中，不上传公开附件或混入源码提交。本节之后的验收记录追加仍采用普通提交；最终 PR 记录最终 SHA 与文档增量复核结果，不改写历史。
+
 ## 结论与放行条件
 
 本次离线审核未发现确认的真实 API Key、GitHub Token、数据库生产凭据、私钥或真实业务用户数据泄露。扫描器存在测试数据误报，已保留原始退出码并逐项复核，没有新增忽略规则。
