@@ -8,19 +8,25 @@
 
 **English summary:** AutoQA Studio imports OpenAPI contracts, uses the workspace owner's model key to draft test cases, requires human review, then runs deterministic HTTP requests and assertions. It stores evidence and exports HTML/Markdown quality reports.
 
-## 产品流程
+## 产品流程与架构
 
 ~~~mermaid
 flowchart LR
-    A[OpenAPI Import] --> B[AI Test Planner]
-    B --> C[Human Review]
-    C --> D[Deterministic HTTP Execution]
-    D --> E[Evidence]
-    E --> F[Quality Report<br/>HTML / Markdown]
-    F -. optional .-> G[AI Analyzer]
+    UI[Web Studio] --> API[FastAPI / 工作区鉴权]
+    API --> A[OpenAPI 解析与校验]
+    A --> B[API Planner / Pydantic]
+    B <--> GW[Provider Gateway / BYOK]
+    B --> C[人工审核结构化请求与断言]
+    C --> D[HTTPX / 目标网络策略]
+    D --> E[执行证据 / 确定性质量报告]
+    E --> F[HTML / Markdown 导出]
+    E -. 用户确认后可选 .-> G[AI Analyzer]
+    G <--> GW
+    API --> DB[(SQLAlchemy / SQLite 或 MySQL)]
+    E --> DB
 ~~~
 
-AI 生成的是待审核计划，不会直接发起测试请求。人工批准后，HTTP 执行器依据用例中的请求参数、预期状态码和断言发送请求并记录结果。AI Analyzer 可基于已脱敏证据补充分析建议；它不会修改执行结果，建议也不代表已确认根因。
+AI 生成的是待审核的描述性用例，不会直接发起测试请求。人工审核结构化请求、预期状态码和断言后，HTTP 执行器按冻结配置运行。AI Analyzer 可基于已脱敏证据补充分析建议；它不会修改执行结果，建议也不代表已确认根因。仓库另保留 LangGraph + Playwright 的浏览器测试工作流与 Demo，详见[浏览器执行架构](docs/architecture.md)。
 
 ## GitHub 作品展示与本地演示
 
@@ -28,27 +34,33 @@ AI 生成的是待审核计划，不会直接发起测试请求。人工批准�
 
 ![AutoQA 工作台](docs/assets/phase6-2a/dashboard.png)
 
-![API 测试计划](docs/assets/phase6-2c-1b/planner-desktop.png)
+![API 测试计划：Mock 规划与 XSS 转义验收](docs/assets/phase6-2c-1b/planner-desktop.png)
 
-截图来自不同阶段的受控测试环境，不代表同一次在线实时测试。
+截图来自不同阶段的真实受控测试环境，展示 Production 工作台与 Planner。第二张使用 `mock-planner`，包含作为文本转义显示的 XSS 测试输入；不代表真实模型生成效果。默认本地 Demo 展示模板流程，界面和数据与截图不同。
 
 ### 本地体验路线
 
 1. 依据下方“本地启动”说明运行项目。默认 Demo 模式可使用内置场景，不必配置真实模型 Key。
 2. 查看测试计划、人工审批、执行证据和报告。清楚区分使用 Mock 的规划、真实 HTTP / 浏览器执行与历史受控 Alpha 结果。
 3. 要运行完整的 OpenAPI → AI Planner → 人工审核 → HTTP 执行闭环，参照[部署指南](docs/production-deployment.md)建立独立 Production 环境，配置自有模型 Key，并仅测试已授权系统。
-4. 参考[演示讲解](docs/demo-guide.md)、[架构说明](docs/architecture.md)、[验证记录](docs/validation.md)。
+4. 参考[演示讲解](docs/demo-guide.md)、[当前验收与公开审核索引](docs/public-release-review.md)。历史报告按原日期保留。
 
 ## 能力与技术栈
 
 - **OpenAPI 导入**：支持 OpenAPI 3.x 与 Swagger 2.0 的常用接口、参数、JSON 请求体和响应结构；仅接受文档内引用，受支持范围和限制以解析器校验为准。
-- **计划与审批**：LangGraph 工作流调用用户配置的模型生成结构化计划；用户可编辑用例，批准后执行配置被冻结。
+- **计划与审批**：API Planner 经 Provider Gateway 调用用户配置的模型，使用 Pydantic 校验结构和接口归属；用户审核用例，批准后执行配置被冻结。
 - **HTTP 执行**：基于 HTTPX 逐条发送真实 HTTP 请求，按确定性状态码和 JSON 断言判定通过或失败；网络、认证等执行异常单独报告为 execution error。
 - **证据与报告**：保存请求、响应、断言、时间和诊断证据；生成 HTML 与 Markdown 质量报告。证据和日志会进行敏感信息脱敏与长度限制。
 - **可选分析**：AI Analyzer 阅读经过筛选和脱敏的证据，输出假设与建议，不改写测试判定。
-- **技术栈**：Python 3.11、FastAPI、Pydantic、SQLAlchemy、LangGraph、HTTPX、Alembic、SQLite、MySQL、Playwright / Chromium、Docker Compose、pytest、GitHub Actions。
+- **技术栈**：Python 3.11+（CI 使用 3.12）、FastAPI、Pydantic、SQLAlchemy、LangGraph、HTTPX、Alembic、SQLite、MySQL、Playwright / Chromium、Docker Compose、pytest、Ruff、GitHub Actions。
 
 本地可使用 SQLite；仓库还包含通过 CI 验收的 MySQL 与 Docker 部署路径。
+
+### 工程难点
+
+- **模型输出不能直接执行**：按两个接口分批规划，严格检查结构、接口归属、四类覆盖与数量限制；所有批次通过后一次事务落库，失败不留下部分用例。见 [Planner 诊断与原子性验收](docs/planner-alpha-blocker.md)。
+- **审核与执行保持一致**：冻结请求与断言；在审核、执行与建立连接时检查目标，固定已校验 IP 并保留 TLS 域名校验，限制响应大小。见 [HTTP 执行边界](docs/phase6-2c-1c.md)。
+- **测试事实与分析建议分离**：断言失败和执行异常分开统计，报告保存确定性快照，AI overlay 不改写执行事实。见 [断言验收](docs/phase6-2c-1d.md)与[报告验收](docs/phase6-2c-1e.md)。
 
 ## 生产安全边界
 
@@ -58,28 +70,50 @@ AI 生成的是待审核计划，不会直接发起测试请求。人工批准�
 - **审计与隐私**：保存执行与审核记录；安全日志、响应和证据对已知敏感值脱敏。证据中可能仍包含目标服务返回的业务数据，使用者应选择适当的测试数据并管理报告访问权限。
 - **执行范围**：执行器运行接口请求和受支持的断言，不运行模型生成的 shell、脚本或任意代码。仅测试你获准访问的目标。
 
-## 真实验收与 CI
+## 测试证据与验证边界
 
-在独立的受控公网 **Alpha Target** 上，Hardening 后执行 **24 个用例 / 6 个 endpoints**，结果为 **22 passed、2 条预设断言失败、0 execution_error**；安全诊断与报告汇总一致。两条预设失败用于验证失败断言能如实报告。**这是上线前受控 Alpha 执行验收，并非 Production 实例上的 24 Case 实测。**
+| 范围 | 已验证内容与边界 |
+| --- | --- |
+| Mock / 自动化 | 模型使用 Mock、FakeGateway、MockTransport 或本地兼容服务；HTTP、Chromium、数据库与容器按各项记录真实运行。不能据此评价真实模型质量。 |
+| 本地 Demo 种子 | Mock 生成计划，ASGITransport 调用内置应用并计算结果；种子中的审批事件是演示数据。新建浏览器任务使用真实 Chromium。 |
+| 受控 Alpha | 独立受控目标的执行验收，结果限于预设接口与断言，不代表开放业务系统成功率。 |
+| 真实模型 | [历史 Alpha 诊断](docs/planner-alpha-blocker.md)记载过模型响应及规划失败；修复使用静态 fixture 复验，不等于修复后真实 BYOK 完整闭环通过。本轮不调用付费模型。 |
 
-Production 切换及实际重启后的 HTTPS、登录、OpenAPI 和安全检查分别通过 **62 项**与 **23 项**验收。GitHub Actions 的 Production-ready release 工作流于 [2026-10-05 成功完成](https://github.com/jayoffans/AutoQA-Agent/actions/runs/37274547291)，其中包含 MySQL 与 Docker 验收。上线前的自动化与受控执行验收未调用真实模型账户；Production 已通过部署、重启和持久化检查，但尚未进行真实 BYOK 推理验收。
+历史记录涉及受控 Alpha Target 执行，以及 Production 切换与重启后的 HTTPS、登录、OpenAPI 和安全检查。本轮未找到可独立复核其汇总数字的原始记录，因此不将这些数字作为当前证据；历史 Alpha 也不代表 Production 的真实 BYOK 完整闭环。
+
+[2026-10-05 的 release CI](https://github.com/jayoffans/AutoQA-Agent/actions/runs/37274547291)包含 MySQL 与 Docker 验收；历史结果不替代当前提交验收。本轮命令、结果、跳过项和公开阻塞项见[当前验收索引](docs/public-release-review.md)。
 
 ## 本地启动
 
-以下为 Windows PowerShell 示例。默认配置使用本地 Demo 模式和 SQLite；运行真实模型规划需在本机配置自己的 Provider。Production 与 Demo 必须使用不同数据库。
+Windows 安装 Python 3.11 或以上版本后，可在仓库目录运行：
+
+~~~powershell
+.\start.cmd -Setup
+~~~
+
+脚本使用项目内 `.venv`，首次启动复制 `.env.example` 为本地 `.env`，安装锁定依赖与 Chromium，并仅监听 `127.0.0.1`。默认使用 Demo / Mock 和 SQLite，不需要模型 Key；已有 `.env` 不会被覆盖。后续运行 `.\start.cmd`；不自动打开浏览器可用 `.\start.cmd -NoBrowser`，在原终端按 Ctrl+C 停止。
+
+也可在 PowerShell 中手动安装（以下使用 Python 3.11）：
 
 ~~~powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-Copy-Item .env.example .env
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 pip install -r requirements.lock
 pip install --no-deps -e .
 python -m playwright install chromium
-python -m alembic upgrade head
+$env:HOST = "127.0.0.1"
 python -m autoqa
 ~~~
 
-打开 http://127.0.0.1:8765 。本地环境变量说明见 [.env.example](.env.example)。
+打开 http://127.0.0.1:8765 。本地环境变量说明见 [.env.example](.env.example)。首次迁移也会在应用启动时执行。全套测试应在没有 Demo `.env` 干扰的独立 checkout 中运行：
+
+~~~powershell
+.\.venv\Scripts\python.exe -m ruff check autoqa tests scripts migrations
+.\.venv\Scripts\python.exe -m pytest -q --junitxml=work/test-results.xml
+~~~
+
+默认 pytest 中未配置的 MySQL / Docker 用例会跳过；CI 的 `auth-mysql` 与 `docker-production` 分别使用独立 MySQL 和真实容器运行这些门禁，详见 [CI 配置](.github/workflows/ci.yml)。Production 与 Demo 必须使用不同数据库，Production 浏览器登录还要求 HTTPS；默认 Demo 不包含完整 BYOK 产品闭环。
 
 ## 自托管部署
 
