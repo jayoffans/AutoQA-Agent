@@ -2,7 +2,7 @@
 
 把 OpenAPI 接口描述转成可审核、可执行、可追溯的 API 测试。AI 负责生成测试计划；每次执行须经人工审核，HTTP 请求和断言按已批准配置确定性运行。
 
-[Production 在线体验](https://autoqa-studio-production.up.railway.app/) · [GitHub 仓库](https://github.com/jayoffans/AutoQA-Agent) · [CI 状态](https://github.com/jayoffans/AutoQA-Agent/actions/workflows/ci.yml)
+[GitHub 仓库](https://github.com/jayoffans/AutoQA-Agent) · [CI 状态](https://github.com/jayoffans/AutoQA-Agent/actions/workflows/ci.yml)
 
 [![Browser QA CI](https://github.com/jayoffans/AutoQA-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/jayoffans/AutoQA-Agent/actions/workflows/ci.yml)
 
@@ -22,19 +22,22 @@ flowchart LR
 
 AI 生成的是待审核计划，不会直接发起测试请求。人工批准后，HTTP 执行器依据用例中的请求参数、预期状态码和断言发送请求并记录结果。AI Analyzer 可基于已脱敏证据补充分析建议；它不会修改执行结果，建议也不代表已确认根因。
 
-## 在线体验
+## GitHub 作品展示与本地演示
 
-打开 [AutoQA Studio Production](https://autoqa-studio-production.up.railway.app/)：
+以 [GitHub 仓库](https://github.com/jayoffans/AutoQA-Agent) 作为唯一对外作品展示入口，不提供在线体验链接。源代码、自动化测试、CI 及技术验收记录均可通过仓库查阅。
 
-1. 注册或登录。新账号从空的个人工作区开始。
-2. 创建 API 测试项目，填写自己有权测试的服务 Base URL。
-3. 在“设置 / 模型服务”配置自己的模型服务和 API Key。AutoQA 不提供模型额度，调用费用由对应 Provider 账户承担。
-4. 打开项目的 API 测试入口，导入 OpenAPI URL、JSON 或 YAML 文档；检查解析出的接口并选择本次测试范围。
-5. 生成测试计划，逐条检查和调整请求、测试数据、预期状态码及断言，然后人工批准。
-6. 启动已批准的执行，查看每个用例的实际 HTTP 状态、断言、证据和执行错误。
-7. 查看质量汇总并导出 HTML 或 Markdown 报告。需要进一步排查时，可选用 AI Analyzer 查看标注为建议的分析。
+![AutoQA 工作台](docs/assets/phase6-2a/dashboard.png)
 
-正式版对目标地址启用公网网络校验。请只对自己或已获授权的系统运行测试。新账号没有预置测试项目或测试结果。
+![API 测试计划](docs/assets/phase6-2c-1b/planner-desktop.png)
+
+截图来自不同阶段的受控测试环境，不代表同一次在线实时测试。
+
+### 本地体验路线
+
+1. 依据下方“本地启动”说明运行项目。默认 Demo 模式可使用内置场景，不必配置真实模型 Key。
+2. 查看测试计划、人工审批、执行证据和报告。清楚区分使用 Mock 的规划、真实 HTTP / 浏览器执行与历史受控 Alpha 结果。
+3. 要运行完整的 OpenAPI → AI Planner → 人工审核 → HTTP 执行闭环，参照[部署指南](docs/production-deployment.md)建立独立 Production 环境，配置自有模型 Key，并仅测试已授权系统。
+4. 参考[演示讲解](docs/demo-guide.md)、[架构说明](docs/architecture.md)、[验证记录](docs/validation.md)。
 
 ## 能力与技术栈
 
@@ -45,7 +48,7 @@ AI 生成的是待审核计划，不会直接发起测试请求。人工批准�
 - **可选分析**：AI Analyzer 阅读经过筛选和脱敏的证据，输出假设与建议，不改写测试判定。
 - **技术栈**：Python 3.11、FastAPI、Pydantic、SQLAlchemy、LangGraph、HTTPX、Alembic、SQLite、MySQL、Playwright / Chromium、Docker Compose、pytest、GitHub Actions。
 
-当前 Production 使用带持久化 Volume 的 SQLite 数据库；仓库也包含已通过 CI 验收的 MySQL 与 Docker 部署路径。
+本地可使用 SQLite；仓库还包含通过 CI 验收的 MySQL 与 Docker 部署路径。
 
 ## 生产安全边界
 
@@ -87,7 +90,7 @@ docker compose --env-file .env.production -f compose.production.yaml build
 docker compose --env-file .env.production -f compose.production.yaml up -d --wait
 ~~~
 
-.env.production 仅保存在部署环境中。主密钥丢失会导致已保存的 Provider 密钥无法解密；单副本运行是当前部署约束。Railway 上的正式实例已运行在 [Production 地址](https://autoqa-studio-production.up.railway.app/)。
+.env.production 仅保存在部署环境中。主密钥丢失会导致已保存的 Provider 密钥无法解密；单副本运行是当前部署约束。部署前应独立配置数据卷与环境密钥。
 
 ## English
 
