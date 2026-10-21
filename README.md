@@ -126,6 +126,10 @@ docker compose --env-file .env.production -f compose.production.yaml up -d --wai
 
 .env.production 仅保存在部署环境中。主密钥丢失会导致已保存的 Provider 密钥无法解密；单副本运行是当前部署约束。部署前应独立配置数据卷与环境密钥。
 
+## 许可证
+
+本项目中维护者有权授权的原创代码和相关文档采用 [MIT License](LICENSE)，Copyright (c) 2026 jayoffans。第三方依赖、工具及其材料分别遵守原有许可证，详见[依赖及授权审查](docs/public-dependency-review.md)。测试数据、历史截图与模型效果说明仍以实际验收记录为准。
+
 ## English
 
 AutoQA Studio turns OpenAPI contracts into reviewed API test plans. Users bring their own model credentials; a human approves each plan before deterministic HTTP execution. The product retains evidence and exports HTML/Markdown quality reports, with optional AI analysis clearly separated from test results.
