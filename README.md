@@ -10,13 +10,17 @@ Phase 6-2-B：工作区 BYOK 模型配置中心，支持多个加密配置、单
 
 [Production 部署](docs/production-deployment.md) · [Phase 6-1 认证与隔离验收](docs/phase6-1.md) · [Phase 5 验收与限制](docs/phase5.md) · [旧版使用文档](docs/usage.md)
 
-## Live Demo
+## GitHub 作品展示
 
-[公开体验 AutoQA Studio](https://autoqa-studio-production.up.railway.app/)
+本仓库以 GitHub 作为对外作品展示入口，不提供在线体验链接。项目保留源码、测试、CI 与可复核的本地演示素材。
 
-Demo 使用 `AUTOQA_MODE=demo`，MockProvider 生成测试计划，执行内置 Login API 真实 HTTP fixture。示例故意接受错误密码，得到 6 个用例、5 个通过、1 个失败。示例 Finding 与报告仅用于 Demo，不代表正式用户的测试结果。
+[GitHub 仓库](https://github.com/jayoffans/AutoQA-Agent) · [本地演示说明](docs/demo-guide.md) · [测试与验收](docs/validation.md)
 
-现有线上 Demo 本轮没有部署、清空或修改。Git 历史和测试 fixture 保留。
+![AutoQA 工作台](docs/assets/phase6-2a/dashboard.png)
+
+![API 测试计划](docs/assets/phase6-2c-1b/planner-desktop.png)
+
+截图来自不同阶段的受控环境，不代表同一次在线实时测试；Mock 规划与真实模型调用应明确区分。
 
 ## Production Use
 
